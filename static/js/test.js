@@ -1,0 +1,1 @@
+alert('This is a static resource reference test!');
