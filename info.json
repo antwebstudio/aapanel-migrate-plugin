@@ -1,0 +1,9 @@
+{
+  "title": "SSH Folder Sync",
+  "name": "antweb_ssh_migrate",
+  "ps": "Synchronize directories from remote SSH nodes to local aaPanel web roots in real-time using secure SSH and incremental rsync.",
+  "versions": "1.0",
+  "checks": "/www/server/panel/plugin/antweb_ssh_migrate",
+  "author": "Ant Web Studio",
+  "home": "https://antwebstudio.com"
+}
