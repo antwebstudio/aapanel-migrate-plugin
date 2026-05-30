@@ -478,7 +478,10 @@
         <!-- Sidebar Navigation -->
         <div class="ssh-sidebar">
             <div class="ssh-menu-item active" onclick="plugin_view.switch_tab('overview', this)">
-                <i class="layui-icon layui-icon-transfer" style="margin-right: 8px;"></i> Overview
+                <i class="layui-icon layui-icon-transfer" style="margin-right: 8px;"></i> Folder Sync
+            </div>
+            <div class="ssh-menu-item" onclick="plugin_view.switch_tab('database', this)">
+                <i class="layui-icon layui-icon-data" style="margin-right: 8px;"></i> Database Sync
             </div>
             <div class="ssh-menu-item" onclick="plugin_view.switch_tab('history', this)">
                 <i class="layui-icon layui-icon-log" style="margin-right: 8px;"></i> History Log
@@ -621,6 +624,7 @@
                         <span style="font-size: 12.5px; color: var(--text-secondary);">Overwrite existing</span>
                     </div>
                 </div>
+
                 </div> <!-- End Scrollable Fields -->
 
                 <!-- Main Action Button (Pinned to Bottom) -->
@@ -629,52 +633,129 @@
                         <i class="layui-icon layui-icon-release" style="margin-right: 8px;"></i> Execute Sync
                     </button>
                 </div>
+            </div>
 
-                <!-- Interactive High-Tech Monitoring Dashboard Overlay -->
-                <div class="transfer-panel" id="transfer-panel" style="display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <span style="font-weight: 700; font-size: 13.5px; color: var(--text-primary);">Sync Process Telemetry</span>
-                        <span class="status-badge running pulse-status" id="task-status-badge">
-                            <i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING
-                        </span>
+            <!-- TAB 1B: DATABASE MIGRATION -->
+            <div id="tab-database" class="tab-pane" style="display: none; height: 100%; flex-direction: column; justify-content: space-between; position: relative;">
+                
+                <!-- Scrollable Fields -->
+                <div class="db-scrollable-fields" style="flex-grow: 1; overflow-y: auto; padding-right: 8px; margin-bottom: 12px;">
+                    <h2 class="section-title">Database Migration</h2>
+                    <p class="section-desc">Export a remote MySQL database using SSH, download the backup dump, and automatically create a matching local database, user, and credentials natively within aaPanel.</p>
+
+                    <!-- SSH Node / Connection Section -->
+                    <div class="ssh-group">
+                        <label class="ssh-label">1. Remote Server / Node</label>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <select class="ssh-select" id="db-ssh-node-select" style="flex-grow: 1;" onchange="plugin_view.on_db_node_change()">
+                                <option value="">-- Choose saved aaPanel SSH Node --</option>
+                            </select>
+                            <button class="ssh-btn ssh-btn-secondary" onclick="plugin_view.load_nodes()" title="Refresh Nodes List">
+                                <svg class="refresh-icon" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="ssh-toggle-container">
+                            <label class="ssh-switch">
+                                <input type="checkbox" id="db-custom-ssh-toggle" onchange="plugin_view.toggle_db_custom_form(this.checked)">
+                                <span class="ssh-slider"></span>
+                            </label>
+                            <span style="font-size: 12.5px; color: var(--text-secondary);">Use custom SSH parameters</span>
+                        </div>
                     </div>
 
-                    <div class="progress-bar-container" style="margin-bottom: 12px;">
-                        <div class="progress-bar-fill" id="task-progress-bar"></div>
-                    </div>
+                    <!-- Custom SSH Form for DB Tab -->
+                    <div class="custom-auth-box" id="db-custom-auth-box">
+                        <div class="ssh-row">
+                            <div class="ssh-col-6" style="flex: 2;">
+                                <label class="ssh-label">Host / IP</label>
+                                <input type="text" class="ssh-input" id="db-ssh-host" placeholder="e.g. 192.168.1.10">
+                            </div>
+                            <div class="ssh-col-6">
+                                <label class="ssh-label">Port</label>
+                                <input type="number" class="ssh-input" id="db-ssh-port" value="22" placeholder="22">
+                            </div>
+                            <div class="ssh-col-6">
+                                <label class="ssh-label">User</label>
+                                <input type="text" class="ssh-input" id="db-ssh-user" value="root" placeholder="root">
+                            </div>
+                        </div>
 
-                    <div class="dashboard-metrics" style="margin-bottom: 12px; gap: 12px;">
-                        <div class="metric-card" style="padding: 8px 12px;">
-                            <div class="metric-label" style="font-size: 10px;">Progress</div>
-                            <div class="metric-value" id="metric-progress" style="font-size: 14px;">0%</div>
+                        <div class="ssh-group">
+                            <label class="ssh-label">Auth Type</label>
+                            <select class="ssh-select" id="db-ssh-auth-type" onchange="plugin_view.on_db_auth_type_change()">
+                                <option value="password">Password</option>
+                                <option value="key">Private Key</option>
+                            </select>
                         </div>
-                        <div class="metric-card" style="padding: 8px 12px;">
-                            <div class="metric-label" style="font-size: 10px;">Speed</div>
-                            <div class="metric-value" id="metric-speed" style="font-size: 14px;">--</div>
-                        </div>
-                        <div class="metric-card" style="padding: 8px 12px;">
-                            <div class="metric-label" style="font-size: 10px;">ETA</div>
-                            <div class="metric-value" id="metric-eta" style="font-size: 14px;">--:--:--</div>
-                        </div>
-                        <div class="metric-card" style="padding: 8px 12px;">
-                            <div class="metric-label" style="font-size: 10px;">Status</div>
-                            <div class="metric-value" id="metric-status" style="font-size: 14px; color: var(--accent-warning);">Syncing</div>
-                        </div>
-                    </div>
 
-                    <label class="ssh-label">Console Log</label>
-                    <div class="terminal-console" id="terminal-console" style="flex-grow: 1; height: 230px; margin-bottom: 12px;">
-                        <div class="terminal-line system">Initialising secure SSH shell...</div>
-                    </div>
+                        <div class="ssh-group" id="db-ssh-password-group">
+                            <label class="ssh-label">Password</label>
+                            <input type="password" class="ssh-input" id="db-ssh-password" placeholder="Remote password">
+                        </div>
 
-                    <div style="display: flex; gap: 12px; justify-content: flex-end; flex-shrink: 0;">
-                        <button class="ssh-btn ssh-btn-danger" id="cancel-task-btn" onclick="plugin_view.cancel_current_task()">
-                            <i class="layui-icon layui-icon-close" style="margin-right: 6px;"></i> Abort Sync
+                        <div class="ssh-group" id="db-ssh-key-group" style="display: none;">
+                            <label class="ssh-label">Private Key</label>
+                            <textarea class="ssh-textarea" id="db-ssh-key" rows="4" style="font-family: var(--font-mono);" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."></textarea>
+                        </div>
+
+                        <button class="ssh-btn ssh-btn-secondary" onclick="plugin_view.test_db_connection()">
+                            <i class="layui-icon layui-icon-auz" style="margin-right: 6px;"></i> Test SSH Connection
                         </button>
-                        <button class="ssh-btn ssh-btn-secondary" id="close-panel-btn" style="display: none;" onclick="plugin_view.close_transfer_panel()">
-                            <i class="layui-icon layui-icon-close-fill" style="margin-right: 6px;"></i> Close
-                        </button>
                     </div>
+
+                    <!-- Database config form -->
+                    <div class="ssh-group" style="margin-top: 20px; border-top: 1px solid var(--border-glass); padding-top: 20px;">
+                        <label class="ssh-label">2. Source DB Credentials Mode</label>
+                        <select class="ssh-select" id="db-source-mode" onchange="plugin_view.on_db_source_mode_change()">
+                            <option value="env">Read from remote .env file</option>
+                            <option value="manual">Enter credentials manually</option>
+                        </select>
+                    </div>
+
+                    <!-- Read from .env file path option -->
+                    <div class="ssh-group" id="db-env-group">
+                        <label class="ssh-label">Remote .env File Path</label>
+                        <input type="text" class="ssh-input" id="db-env-path" placeholder="e.g. /www/wwwroot/my_site/.env">
+                        <p style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">Provide the absolute path to your site's `.env` file on the remote server.</p>
+                    </div>
+
+                    <!-- Manual credentials option -->
+                    <div class="manual-db-box" id="db-manual-group" style="display: none;">
+                        <div class="ssh-row">
+                            <div class="ssh-col-6" style="flex: 2;">
+                                <label class="ssh-label">Remote DB Host</label>
+                                <input type="text" class="ssh-input" id="db-host" value="127.0.0.1" placeholder="127.0.0.1">
+                            </div>
+                            <div class="ssh-col-6">
+                                <label class="ssh-label">Port</label>
+                                <input type="number" class="ssh-input" id="db-port" value="3306" placeholder="3306">
+                            </div>
+                        </div>
+                        <div class="ssh-row">
+                            <div class="ssh-col-6">
+                                <label class="ssh-label">Database Name</label>
+                                <input type="text" class="ssh-input" id="db-name" placeholder="Database Name">
+                            </div>
+                            <div class="ssh-col-6">
+                                <label class="ssh-label">Username</label>
+                                <input type="text" class="ssh-input" id="db-user" placeholder="Username">
+                            </div>
+                        </div>
+                        <div class="ssh-group" style="margin-top: 10px;">
+                            <label class="ssh-label">Password</label>
+                            <input type="password" class="ssh-input" id="db-password" placeholder="Password">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Action Button -->
+                <div style="flex-shrink: 0; border-top: 1px solid var(--border-glass); padding-top: 12px; width: 100%;">
+                    <button class="ssh-btn ssh-btn-primary" style="width: 100%; font-size: 13.5px; padding: 10px 20px;" onclick="plugin_view.start_database_transfer()">
+                        <i class="layui-icon layui-icon-release" style="margin-right: 8px;"></i> Execute Database Sync
+                    </button>
                 </div>
             </div>
 
@@ -733,6 +814,53 @@
 
                     <h3 style="color: var(--text-primary); font-size: 15px; font-weight: 600; margin: 20px 0 10px 0;">Compatibility requirements:</h3>
                     <p>Designed for Linux distributions supported by aaPanel (Ubuntu, CentOS, Debian). Standard `rsync` must be installed on both local and target remote hosts (standard in most OS configurations).</p>
+                </div>
+            </div>
+
+            <!-- Interactive High-Tech Monitoring Dashboard Overlay (Globally Shared) -->
+            <div class="transfer-panel" id="transfer-panel" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="font-weight: 700; font-size: 13.5px; color: var(--text-primary);">Sync Process Telemetry</span>
+                    <span class="status-badge running pulse-status" id="task-status-badge">
+                        <i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING
+                    </span>
+                </div>
+
+                <div class="progress-bar-container" style="margin-bottom: 12px;">
+                    <div class="progress-bar-fill" id="task-progress-bar"></div>
+                </div>
+
+                <div class="dashboard-metrics" style="margin-bottom: 12px; gap: 12px;">
+                    <div class="metric-card" style="padding: 8px 12px;">
+                        <div class="metric-label" style="font-size: 10px;">Progress</div>
+                        <div class="metric-value" id="metric-progress" style="font-size: 14px;">0%</div>
+                    </div>
+                    <div class="metric-card" style="padding: 8px 12px;">
+                        <div class="metric-label" style="font-size: 10px;">Speed</div>
+                        <div class="metric-value" id="metric-speed" style="font-size: 14px;">--</div>
+                    </div>
+                    <div class="metric-card" style="padding: 8px 12px;">
+                        <div class="metric-label" style="font-size: 10px;">ETA</div>
+                        <div class="metric-value" id="metric-eta" style="font-size: 14px;">--:--:--</div>
+                    </div>
+                    <div class="metric-card" style="padding: 8px 12px;">
+                        <div class="metric-label" style="font-size: 10px;">Status</div>
+                        <div class="metric-value" id="metric-status" style="font-size: 14px; color: var(--accent-warning);">Syncing</div>
+                    </div>
+                </div>
+
+                <label class="ssh-label">Console Log</label>
+                <div class="terminal-console" id="terminal-console" style="flex-grow: 1; height: 230px; margin-bottom: 12px;">
+                    <div class="terminal-line system">Initialising secure SSH shell...</div>
+                </div>
+
+                <div style="display: flex; gap: 12px; justify-content: flex-end; flex-shrink: 0;">
+                    <button class="ssh-btn ssh-btn-danger" id="cancel-task-btn" onclick="plugin_view.cancel_current_task()">
+                        <i class="layui-icon layui-icon-close" style="margin-right: 6px;"></i> Abort Sync
+                    </button>
+                    <button class="ssh-btn ssh-btn-secondary" id="close-panel-btn" style="display: none;" onclick="plugin_view.close_transfer_panel()">
+                        <i class="layui-icon layui-icon-close-fill" style="margin-right: 6px;"></i> Close
+                    </button>
                 </div>
             </div>
         </div>
@@ -812,7 +940,11 @@
         // Tab views navigation switcher
         switch_tab: function(tab_name, element) {
             $('.tab-pane').hide();
-            $('#tab-' + tab_name).fadeIn(250);
+            
+            var targetTab = $('#tab-' + tab_name);
+            var displayStyle = (tab_name === 'about') ? 'block' : 'flex';
+            
+            targetTab.css('display', displayStyle).hide().fadeIn(250);
 
             $(element).addClass('active').siblings().removeClass('active');
 
@@ -859,6 +991,16 @@
             if (current === '/' || !current.startsWith(path)) {
                 $('#remote-dir').val(path);
             }
+            this.update_db_env_path();
+        },
+
+        update_db_env_path: function() {
+            var remote_dir = $('#remote-dir').val().trim();
+            if (remote_dir) {
+                var separator = (remote_dir.endsWith('/') || remote_dir.endsWith('\\')) ? '' : '/';
+                var env_path = remote_dir + separator + '.env';
+                $('#db-env-path').val(env_path);
+            }
         },
 
         fill_local: function(path) {
@@ -866,6 +1008,212 @@
             if (current === '/' || !current.startsWith(path)) {
                 $('#local-dir').val(path);
             }
+        },
+
+        // Switch between DB credentials mode
+        on_db_source_mode_change: function() {
+            var mode = $('#db-source-mode').val();
+            if (mode === 'env') {
+                $('#db-env-group').show();
+                $('#db-manual-group').hide();
+            } else {
+                $('#db-env-group').hide();
+                $('#db-manual-group').show();
+            }
+        },
+
+        // Toggle custom auth parameters form on database tab
+        toggle_db_custom_form: function(checked) {
+            if (checked) {
+                $('#db-ssh-node-select').val('').prop('disabled', true);
+                $('#db-custom-auth-box').slideDown(250);
+            } else {
+                $('#db-ssh-node-select').prop('disabled', false);
+                $('#db-custom-auth-box').slideUp(250);
+            }
+        },
+
+        // Trigger input fields on DB auth type changes
+        on_db_auth_type_change: function() {
+            var auth_type = $('#db-ssh-auth-type').val();
+            if (auth_type === 'key') {
+                $('#db-ssh-password-group').hide();
+                $('#db-ssh-key-group').show();
+            } else {
+                $('#db-ssh-password-group').show();
+                $('#db-ssh-key-group').hide();
+            }
+        },
+
+        // Change DB nodes callback
+        on_db_node_change: function() {
+            var val = $('#db-ssh-node-select').val();
+            if (val) {
+                $('#db-custom-ssh-toggle').prop('checked', false);
+                $('#db-custom-auth-box').hide();
+            }
+        },
+
+        // Test DB SSH Connection
+        test_db_connection: function() {
+            var custom_active = $('#db-custom-ssh-toggle').is(':checked');
+            var args = {};
+
+            if (custom_active) {
+                args = {
+                    host: $('#db-ssh-host').val().trim(),
+                    port: $('#db-ssh-port').val().trim(),
+                    username: $('#db-ssh-user').val().trim(),
+                    auth_type: $('#db-ssh-auth-type').val(),
+                    password: safe_b64encode($('#db-ssh-password').val().trim()),
+                    key: safe_b64encode($('#db-ssh-key').val().trim()),
+                    _b64: 1
+                };
+
+                if (!args.host) {
+                    layer.msg('Host IP is required for custom connection testing!', { icon: 2 });
+                    return;
+                }
+            } else {
+                var node_id = $('#db-ssh-node-select').val();
+                if (!node_id) {
+                    layer.msg('Please select an SSH Node to test or toggle custom settings!', { icon: 2 });
+                    return;
+                }
+                args.node_id = node_id;
+            }
+
+            var load = layer.msg('Testing Secure SSH handshake...', { icon: 16, time: 0, shade: 0.3 });
+
+            request_plugin(g_plugin_name, 'test_connection', args, function(rdata) {
+                layer.close(load);
+                if (typeof rdata === 'string') {
+                    try {
+                        rdata = JSON.parse(rdata);
+                    } catch (e) {
+                        layer.open({
+                            title: 'SSH Connection Failed (Raw Error)',
+                            area: ['600px', '350px'],
+                            content: '<pre style="color: var(--accent-danger); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; overflow: auto; height: 100%;">' + rdata + '</pre>'
+                        });
+                        return;
+                    }
+                }
+                
+                var msg = rdata.message || rdata.msg || 'Connection check completed.';
+                if (rdata.status) {
+                    layer.msg(msg, { icon: 1 });
+                } else {
+                    layer.open({
+                        title: 'SSH Connection Failed',
+                        area: ['550px', '280px'],
+                        content: '<div style="color: var(--accent-danger); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; word-break: break-all;">' + msg + '</div>'
+                    });
+                }
+            });
+        },
+
+        // Action: Execute Database Sync Only
+        start_database_transfer: function() {
+            var custom_active = $('#db-custom-ssh-toggle').is(':checked');
+            var args = {
+                db_migrate: 1,
+                db_only: 1,
+                remote_dir: '',
+                local_dir: ''
+            };
+
+            if (custom_active) {
+                args.host = $('#db-ssh-host').val().trim();
+                args.port = $('#db-ssh-port').val().trim();
+                args.username = $('#db-ssh-user').val().trim();
+                args.auth_type = $('#db-ssh-auth-type').val();
+                args.password = safe_b64encode($('#db-ssh-password').val().trim());
+                args.key = safe_b64encode($('#db-ssh-key').val().trim());
+                args._b64 = 1;
+
+                if (!args.host) {
+                    layer.msg('Host IP is required!', { icon: 2 });
+                    return;
+                }
+            } else {
+                var node_id = $('#db-ssh-node-select').val();
+                if (!node_id) {
+                    layer.msg('Please select an SSH node target or configure custom parameters!', { icon: 2 });
+                    return;
+                }
+                args.node_id = node_id;
+            }
+
+            args.db_source_mode = $('#db-source-mode').val();
+            if (args.db_source_mode === 'env') {
+                var env_path = $('#db-env-path').val().trim();
+                if (!env_path) {
+                    layer.msg('Remote .env file path is required!', { icon: 2 });
+                    return;
+                }
+                if (!env_path.endsWith('.env')) {
+                    var separator = (env_path.endsWith('/') || env_path.endsWith('\\')) ? '' : '/';
+                    env_path = env_path + separator + '.env';
+                    $('#db-env-path').val(env_path);
+                }
+                args.db_env_path = env_path;
+            } else {
+                args.db_host = $('#db-host').val().trim() || '127.0.0.1';
+                args.db_port = $('#db-port').val().trim() || '3306';
+                args.db_name = $('#db-name').val().trim();
+                args.db_user = $('#db-user').val().trim();
+                args.db_password = safe_b64encode($('#db-password').val().trim());
+                args._db_b64 = 1;
+
+                if (!args.db_name || !args.db_user) {
+                    layer.msg('Database name and username are required for manual mode!', { icon: 2 });
+                    return;
+                }
+            }
+
+            var confirm_msg = "Are you sure you want to migrate this remote database to aaPanel?<br><br>Target Database: <b style='color: var(--accent-primary);'>" + (args.db_name || 'Parsed from .env') + "</b>";
+
+            var self = this;
+            layer.confirm(confirm_msg, { title: 'Initiate Database Migrator', icon: 3 }, function(index) {
+                layer.close(index);
+                var loading = layer.msg('Spawning background migrator...', { icon: 16, time: 0, shade: 0.3 });
+
+                request_plugin(g_plugin_name, 'start_copy', args, function(rdata) {
+                    layer.close(loading);
+                    if (typeof rdata === 'string') {
+                        try {
+                            rdata = JSON.parse(rdata);
+                        } catch(e) {
+                            layer.msg('Failed to initiate transfer: ' + rdata, { icon: 2 });
+                            return;
+                        }
+                    }
+
+                    if (!rdata.status) {
+                        layer.msg(rdata.message || rdata.msg || 'Failed to initiate transfer.', { icon: 2 });
+                        return;
+                    }
+
+                    var task_info = rdata.data;
+                    self.active_task_id = task_info.task_id;
+                    
+                    $('#transfer-panel').css('display', 'flex').hide().fadeIn(300);
+
+                    $('#task-progress-bar').css('width', '0%');
+                    $('#metric-progress').text('0%');
+                    $('#metric-speed').text('--');
+                    $('#metric-eta').text('--:--:--');
+                    $('#metric-status').text('Initializing...').css('color', 'var(--text-secondary)');
+                    $('#task-status-badge').attr('class', 'status-badge running pulse-status').html('<i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING');
+                    $('#terminal-console').html('<div class="terminal-line system">Secure DB migrator daemon initiated. Spawn ID: ' + task_info.pid + '</div>');
+                    
+                    $('#cancel-task-btn').show();
+                    $('#close-panel-btn').hide();
+
+                    self.start_status_polling();
+                });
+            });
         },
 
         // Toggle directories exclusions chips
@@ -887,7 +1235,11 @@
         // Initialize lists of saved hosts nodes
         load_nodes: function() {
             var select = $('#ssh-node-select');
+            var db_select = $('#db-ssh-node-select');
             select.html('<option value="">-- Refreshing nodes list... --</option>');
+            if (db_select.length) {
+                db_select.html('<option value="">-- Refreshing nodes list... --</option>');
+            }
             
             request_plugin(g_plugin_name, 'get_ssh_nodes', {}, function(rdata) {
                 if (typeof rdata === 'string') {
@@ -895,19 +1247,24 @@
                         rdata = JSON.parse(rdata);
                     } catch(e) {
                         select.html('<option value="">Error: Failed to parse server response</option>');
+                        if (db_select.length) db_select.html('<option value="">Error: Failed to parse server response</option>');
                         return;
                     }
                 }
 
                 if (!rdata.status) {
-                    select.html('<option value="">Error scanning local hosts: ' + (rdata.message || rdata.msg || 'Unknown error') + '</option>');
+                    var err = 'Error scanning local hosts: ' + (rdata.message || rdata.msg || 'Unknown error');
+                    select.html('<option value="">' + err + '</option>');
+                    if (db_select.length) db_select.html('<option value="">' + err + '</option>');
                     return;
                 }
 
                 var list = rdata.data || [];
 
                 if (list.length === 0) {
-                    select.html('<option value="">No SSH nodes found. Toggle custom settings below.</option>');
+                    var empty_msg = 'No SSH nodes found. Toggle custom settings below.';
+                    select.html('<option value="">' + empty_msg + '</option>');
+                    if (db_select.length) db_select.html('<option value="">' + empty_msg + '</option>');
                     return;
                 }
 
@@ -918,6 +1275,7 @@
                     html += '<option value="' + n.id + '">' + label + '</option>';
                 }
                 select.html(html);
+                if (db_select.length) db_select.html(html);
             });
         },
 
@@ -1034,7 +1392,8 @@
                 local_dir: $('#local-dir').val().trim(),
                 exclude_folders: $('#exclude-folders').val().trim(),
                 sync_mode: $('#sync-mode').is(':checked') ? 1 : 0,
-                overwrite: $('#overwrite').is(':checked') ? 1 : 0
+                overwrite: $('#overwrite').is(':checked') ? 1 : 0,
+                db_migrate: 0
             };
 
             if (!args.remote_dir || !args.local_dir) {
@@ -1095,8 +1454,6 @@
                     var task_info = rdata.data;
                     self.active_task_id = task_info.task_id;
                     
-                    $('.overview-scrollable-fields').hide();
-                    $('#start-copy-btn').parent().hide();
                     $('#transfer-panel').css('display', 'flex').hide().fadeIn(300);
 
                     $('#task-progress-bar').css('width', '0%');
@@ -1369,4 +1726,18 @@
     plugin_view.load_nodes();
     plugin_view.load_websites();
     $('#exclude-folders').val('.git, node_modules, vendor');
+
+    // Auto update DB env path when remote directory changes
+    $('#remote-dir').on('input', function() {
+        plugin_view.update_db_env_path();
+    });
+
+    // Auto-append .env if remote .env path is entered without it on blur
+    $('#db-env-path').on('blur', function() {
+        var val = $(this).val().trim();
+        if (val && !val.endsWith('.env')) {
+            var separator = (val.endsWith('/') || val.endsWith('\\')) ? '' : '/';
+            $(this).val(val + separator + '.env');
+        }
+    });
 </script>

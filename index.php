@@ -102,9 +102,13 @@ class bt_main {
             if (isset($params['password'])) $params['password'] = base64_decode($params['password']);
             if (isset($params['key'])) $params['key'] = base64_decode($params['key']);
         }
+        if (!empty($params['_db_b64'])) {
+            if (isset($params['db_password'])) $params['db_password'] = base64_decode($params['db_password']);
+        }
         
         // Basic validations
-        if (empty($params['remote_dir']) || empty($params['local_dir'])) {
+        $db_only = !empty($params['db_only']) ? true : false;
+        if (!$db_only && (empty($params['remote_dir']) || empty($params['local_dir']))) {
             return [
                 "status" => false,
                 "message" => "Remote directory and local directory are both required.",
@@ -157,12 +161,15 @@ class bt_main {
         
         $host_label = !empty($params['node_id']) ? "Saved Node #" . $params['node_id'] : $params['host'];
         
+        $remote_path = !empty($params['remote_dir']) ? $params['remote_dir'] : "[DB: " . (!empty($params['db_name']) ? $params['db_name'] : 'Env parsed') . "]";
+        $local_path = !empty($params['local_dir']) ? $params['local_dir'] : "[DB: " . (!empty($params['db_name']) ? $params['db_name'] : 'Env parsed') . "]";
+        
         $history[] = [
             "task_id" => $task_id,
             "pid" => $pid,
             "host" => $host_label,
-            "remote_dir" => $params['remote_dir'],
-            "local_dir" => $params['local_dir'],
+            "remote_dir" => $remote_path,
+            "local_dir" => $local_path,
             "status" => "running",
             "started_at" => time(),
             "completed_at" => null,
