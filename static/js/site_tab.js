@@ -45,7 +45,21 @@
     var DEFAULT_EXCLUDES = ['.git', 'node_modules', 'vendor'];
     // Bump on every debug-relevant change so it's obvious from the console
     // whether a stale/cached copy of this script is actually running.
-    var DEBUG_BUILD = 'debug-4';
+    var DEBUG_BUILD = 'debug-5';
+
+    // Forces every sibling .n-tab-pane other than ours to stay hidden while
+    // our tab is active, regardless of how many there are (a second plugin
+    // can inject its own pane the same way we do, e.g. env_editor's
+    // "env-editor-pane") or whether Vue re-asserts its own inline display
+    // style on the real pane sometime after we set it -- !important beats
+    // both a plain inline style set once and whatever specificity Vue uses.
+    function ensureHideStyle() {
+        if (document.getElementById('antweb-migrate-hide-style')) return;
+        var style = document.createElement('style');
+        style.id = 'antweb-migrate-hide-style';
+        style.textContent = '.migrate-tab-active > .n-tab-pane:not(.migrate-pane) { display: none !important; }';
+        document.head.appendChild(style);
+    }
 
     var DEBUG = true;
     function dlog() {
@@ -58,6 +72,7 @@
     }
 
     dlog('site_tab.js loaded, MutationObserver supported =', !!window.MutationObserver);
+    ensureHideStyle();
 
     function getCsrfToken() {
         var el = document.getElementById('request_token_head');
@@ -388,35 +403,21 @@
         var resolvedLocalDir = null;
         var activeTaskId = null;
         var pollTimer = null;
-        var lastHiddenPane = null;
-
-        // `tabPane` above is only the pane that happened to be active when
-        // the modal first opened. aaPanel swaps in a different .n-tab-pane
-        // element (a new DOM node, not just a display toggle) whenever a
-        // *different* built-in tab is clicked, so that reference goes stale
-        // the moment the user visits another tab before ours -- we have to
-        // re-resolve whichever real pane is actually visible right now.
-        function getActiveRealPane() {
-            var active = null;
-            var seen = [];
-            for (var i = 0; i < outerTabs.children.length; i++) {
-                var child = outerTabs.children[i];
-                if (child === ourPane || !child.classList.contains('n-tab-pane')) continue;
-                var visible = child.style.display !== 'none' && window.getComputedStyle(child).display !== 'none';
-                seen.push({ index: i, className: child.className, inlineDisplay: child.style.display, computedDisplay: window.getComputedStyle(child).display, visible: visible });
-                if (visible && !active) active = child;
-            }
-            dlog('getActiveRealPane(): candidates=' + JSON.stringify(seen) + ' pickedIndex=' + (active ? active.className : 'null'));
-            return active;
-        }
 
         function activateOurs() {
             var tabs = tabsWrapper.querySelectorAll('.n-tabs-tab');
             for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('n-tabs-tab--active');
             tabItem.querySelector('.n-tabs-tab').classList.add('n-tabs-tab--active');
 
-            lastHiddenPane = getActiveRealPane();
-            if (lastHiddenPane) lastHiddenPane.style.display = 'none';
+            // Force-hide every other .n-tab-pane sibling via the injected
+            // !important stylesheet rule (see ensureHideStyle()) instead of
+            // imperatively setting one specific node's inline style. This
+            // covers cases an imperative "find the one active pane and hide
+            // it" approach can't: more than one sibling pane simultaneously
+            // present (e.g. another plugin's own injected tab, such as
+            // env_editor's "env-editor-pane"), and Vue re-asserting its own
+            // inline display style on the real pane after we set it.
+            outerTabs.classList.add('migrate-tab-active');
             ourPane.style.display = '';
 
             if (!loaded) {
@@ -430,10 +431,7 @@
             var activeTabEl = tabItem.querySelector('.n-tabs-tab');
             if (activeTabEl) activeTabEl.classList.remove('n-tabs-tab--active');
             ourPane.style.display = 'none';
-            if (lastHiddenPane) {
-                lastHiddenPane.style.display = '';
-                lastHiddenPane = null;
-            }
+            outerTabs.classList.remove('migrate-tab-active');
         }
 
         function loadNodes() {
