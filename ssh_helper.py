@@ -7,6 +7,7 @@ import subprocess
 import time
 import re
 import socket
+import traceback
 
 # Try importing paramiko for SSH/SFTP testing and folder browsing
 try:
@@ -69,36 +70,42 @@ def get_hosts():
     hosts = []
     try:
         ssh_admin = _get_ssh_host_admin()
-        save_path = ssh_admin._save_path
-        if os.path.exists(save_path):
-            for name in sorted(os.listdir(save_path)):
-                info_file = os.path.join(save_path, name, "info.json")
-                if not os.path.exists(info_file):
-                    continue
-                try:
-                    info = ssh_admin.get_ssh_info(name)
-                except Exception as e:
-                    log_error("SSH_INFO_DECODE_ERROR", f"Failed to decrypt saved SSH host '{name}': {str(e)}")
-                    continue
-                if not info:
-                    continue
-
-                host_ip = info.get("host")
-                port = info.get("port") or 22
-                user = info.get("username") or "root"
-                remark = info.get("ps") or f"{user}@{host_ip}"
-
-                hosts.append({
-                    "id": name,
-                    "host": host_ip,
-                    "port": int(port),
-                    "username": user,
-                    "remark": remark,
-                    "has_password": bool(info.get("password")),
-                    "has_key": bool(info.get("pkey"))
-                })
     except Exception as e:
-        log_error("SSH_HOSTS_LOAD_ERROR", f"Exception while reading saved SSH hosts: {str(e)}")
+        log_error("SSH_HOSTS_LOAD_ERROR", f"Failed to load aaPanel ssh_terminal_v2 module: {traceback.format_exc()}")
+        print_result(False, f"Could not read aaPanel's saved SSH hosts: {str(e)}")
+        return
+
+    save_path = ssh_admin._save_path
+    if not os.path.exists(save_path):
+        print_result(True, "Success", hosts)
+        return
+
+    for name in sorted(os.listdir(save_path)):
+        info_file = os.path.join(save_path, name, "info.json")
+        if not os.path.exists(info_file):
+            continue
+        try:
+            info = ssh_admin.get_ssh_info(name)
+        except Exception as e:
+            log_error("SSH_INFO_DECODE_ERROR", f"Failed to decrypt saved SSH host '{name}': {traceback.format_exc()}")
+            continue
+        if not info:
+            continue
+
+        host_ip = info.get("host")
+        port = info.get("port") or 22
+        user = info.get("username") or "root"
+        remark = info.get("ps") or f"{user}@{host_ip}"
+
+        hosts.append({
+            "id": name,
+            "host": host_ip,
+            "port": int(port),
+            "username": user,
+            "remark": remark,
+            "has_password": bool(info.get("password")),
+            "has_key": bool(info.get("pkey"))
+        })
 
     print_result(True, "Success", hosts)
 
