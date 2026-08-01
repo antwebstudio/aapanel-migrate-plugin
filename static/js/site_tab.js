@@ -324,7 +324,12 @@
             return;
         }
 
-        dlog('attaching Migrate tab to', outerTabs);
+        var initialChildren = [];
+        for (var ci = 0; ci < outerTabs.children.length; ci++) {
+            var c = outerTabs.children[ci];
+            initialChildren.push({ index: ci, tag: c.tagName, className: c.className, inlineDisplay: c.style.display, computedDisplay: window.getComputedStyle(c).display });
+        }
+        dlog('attaching Migrate tab. outerTabs.children at attach time =', initialChildren);
         dialogEl.dataset.migrateAttached = 'true';
 
         var siteName = extractSiteName(dialogEl);
@@ -390,14 +395,15 @@
         // re-resolve whichever real pane is actually visible right now.
         function getActiveRealPane() {
             var active = null;
+            var seen = [];
             for (var i = 0; i < outerTabs.children.length; i++) {
                 var child = outerTabs.children[i];
                 if (child === ourPane || !child.classList.contains('n-tab-pane')) continue;
-                if (child.style.display !== 'none' && window.getComputedStyle(child).display !== 'none') {
-                    active = child;
-                    break;
-                }
+                var visible = child.style.display !== 'none' && window.getComputedStyle(child).display !== 'none';
+                seen.push({ index: i, className: child.className, inlineDisplay: child.style.display, computedDisplay: window.getComputedStyle(child).display, visible: visible });
+                if (visible && !active) active = child;
             }
+            dlog('getActiveRealPane(): candidates=', seen, 'picked=', active);
             return active;
         }
 
