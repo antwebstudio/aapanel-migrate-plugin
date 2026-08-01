@@ -44,6 +44,18 @@
     var CUSTOM_TAB_NAME = 'antweb_ssh_migrate_tab';
     var DEFAULT_EXCLUDES = ['.git', 'node_modules', 'vendor'];
 
+    var DEBUG = true;
+    function dlog() {
+        // console.log, not console.debug -- Chrome DevTools hides
+        // console.debug output under the "Verbose" level, which is off by
+        // default, so it silently looks like nothing is running.
+        if (!DEBUG || !window.console) return;
+        var args = ['[antweb_ssh_migrate]'].concat(Array.prototype.slice.call(arguments));
+        console.log.apply(console, args);
+    }
+
+    dlog('site_tab.js loaded, MutationObserver supported =', !!window.MutationObserver);
+
     function getCsrfToken() {
         var el = document.getElementById('request_token_head');
         return el ? el.getAttribute('token') : null;
@@ -285,13 +297,6 @@
         backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(); });
 
         return { body: body, close: close };
-    }
-
-    var DEBUG = true;
-    function dlog() {
-        if (!DEBUG || !window.console) return;
-        var args = ['[antweb_ssh_migrate]'].concat(Array.prototype.slice.call(arguments));
-        console.debug.apply(console, args);
     }
 
     function attach(dialogEl) {
