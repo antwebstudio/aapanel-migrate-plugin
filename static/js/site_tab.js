@@ -380,12 +380,34 @@
         var resolvedLocalDir = null;
         var activeTaskId = null;
         var pollTimer = null;
+        var lastHiddenPane = null;
+
+        // `tabPane` above is only the pane that happened to be active when
+        // the modal first opened. aaPanel swaps in a different .n-tab-pane
+        // element (a new DOM node, not just a display toggle) whenever a
+        // *different* built-in tab is clicked, so that reference goes stale
+        // the moment the user visits another tab before ours -- we have to
+        // re-resolve whichever real pane is actually visible right now.
+        function getActiveRealPane() {
+            var active = null;
+            for (var i = 0; i < outerTabs.children.length; i++) {
+                var child = outerTabs.children[i];
+                if (child === ourPane || !child.classList.contains('n-tab-pane')) continue;
+                if (child.style.display !== 'none' && window.getComputedStyle(child).display !== 'none') {
+                    active = child;
+                    break;
+                }
+            }
+            return active;
+        }
 
         function activateOurs() {
             var tabs = tabsWrapper.querySelectorAll('.n-tabs-tab');
             for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('n-tabs-tab--active');
             tabItem.querySelector('.n-tabs-tab').classList.add('n-tabs-tab--active');
-            tabPane.style.display = 'none';
+
+            lastHiddenPane = getActiveRealPane();
+            if (lastHiddenPane) lastHiddenPane.style.display = 'none';
             ourPane.style.display = '';
 
             if (!loaded) {
@@ -399,7 +421,10 @@
             var activeTabEl = tabItem.querySelector('.n-tabs-tab');
             if (activeTabEl) activeTabEl.classList.remove('n-tabs-tab--active');
             ourPane.style.display = 'none';
-            tabPane.style.display = '';
+            if (lastHiddenPane) {
+                lastHiddenPane.style.display = '';
+                lastHiddenPane = null;
+            }
         }
 
         function loadNodes() {
