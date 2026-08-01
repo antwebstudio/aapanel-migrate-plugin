@@ -45,7 +45,7 @@
     var DEFAULT_EXCLUDES = ['.git', 'node_modules', 'vendor'];
     // Bump on every debug-relevant change so it's obvious from the console
     // whether a stale/cached copy of this script is actually running.
-    var DEBUG_BUILD = 'debug-5';
+    var DEBUG_BUILD = 'debug-6';
 
     // Forces every sibling .n-tab-pane other than ours to stay hidden while
     // our tab is active, regardless of how many there are (a second plugin
@@ -320,13 +320,20 @@
     function attach(dialogEl) {
         if (dialogEl.dataset.migrateAttached) return;
 
-        // Uniquely identified by having both "n-tabs--left" and
-        // "bt-tabs-modal" (nested sub-tabs like Response log use
-        // "n-tabs--top"/"bt-tabs" instead, so this won't match those).
+        // "n-tabs--left.bt-tabs-modal" is a generic left-tabs modal layout
+        // aaPanel reuses for several settings dialogs (FTP, database, cron,
+        // ...), not just the website Settings modal, so it isn't a specific
+        // enough signal on its own. The "domain" tab is unique to the site
+        // config panel (nested sub-tabs like Response log use
+        // "n-tabs--top"/"bt-tabs" instead, so this won't match those either).
         var outerTabs = dialogEl.querySelector('.n-tabs--left.bt-tabs-modal');
         if (!outerTabs) {
             dlog('bailed: no .n-tabs--left.bt-tabs-modal inside dialog', dialogEl);
-            return; // not a site-edit modal, or markup changed
+            return; // not a left-tabs modal at all
+        }
+        if (!outerTabs.querySelector('[data-name="domain"]')) {
+            dlog('bailed: outerTabs found but no domain tab -- not the website Settings modal', outerTabs);
+            return;
         }
 
         var tabsWrapper = outerTabs.querySelector('.n-tabs-wrapper');
