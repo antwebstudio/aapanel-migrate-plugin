@@ -43,6 +43,9 @@
     var PLUGIN_NAME = 'antweb_ssh_migrate';
     var CUSTOM_TAB_NAME = 'antweb_ssh_migrate_tab';
     var DEFAULT_EXCLUDES = ['.git', 'node_modules', 'vendor'];
+    // Bump on every debug-relevant change so it's obvious from the console
+    // whether a stale/cached copy of this script is actually running.
+    var DEBUG_BUILD = 'debug-4';
 
     var DEBUG = true;
     function dlog() {
@@ -50,7 +53,7 @@
         // console.debug output under the "Verbose" level, which is off by
         // default, so it silently looks like nothing is running.
         if (!DEBUG || !window.console) return;
-        var args = ['[antweb_ssh_migrate]'].concat(Array.prototype.slice.call(arguments));
+        var args = ['[antweb_ssh_migrate ' + DEBUG_BUILD + ']'].concat(Array.prototype.slice.call(arguments));
         console.log.apply(console, args);
     }
 
@@ -329,7 +332,7 @@
             var c = outerTabs.children[ci];
             initialChildren.push({ index: ci, tag: c.tagName, className: c.className, inlineDisplay: c.style.display, computedDisplay: window.getComputedStyle(c).display });
         }
-        dlog('attaching Migrate tab. outerTabs.children at attach time =', initialChildren);
+        dlog('attaching Migrate tab. outerTabs.children at attach time = ' + JSON.stringify(initialChildren));
         dialogEl.dataset.migrateAttached = 'true';
 
         var siteName = extractSiteName(dialogEl);
@@ -403,7 +406,7 @@
                 seen.push({ index: i, className: child.className, inlineDisplay: child.style.display, computedDisplay: window.getComputedStyle(child).display, visible: visible });
                 if (visible && !active) active = child;
             }
-            dlog('getActiveRealPane(): candidates=', seen, 'picked=', active);
+            dlog('getActiveRealPane(): candidates=' + JSON.stringify(seen) + ' pickedIndex=' + (active ? active.className : 'null'));
             return active;
         }
 
