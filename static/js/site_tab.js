@@ -287,6 +287,13 @@
         return { body: body, close: close };
     }
 
+    var DEBUG = true;
+    function dlog() {
+        if (!DEBUG || !window.console) return;
+        var args = ['[antweb_ssh_migrate]'].concat(Array.prototype.slice.call(arguments));
+        console.debug.apply(console, args);
+    }
+
     function attach(dialogEl) {
         if (dialogEl.dataset.migrateAttached) return;
 
@@ -294,7 +301,10 @@
         // "bt-tabs-modal" (nested sub-tabs like Response log use
         // "n-tabs--top"/"bt-tabs" instead, so this won't match those).
         var outerTabs = dialogEl.querySelector('.n-tabs--left.bt-tabs-modal');
-        if (!outerTabs) return; // not a site-edit modal, or markup changed
+        if (!outerTabs) {
+            dlog('bailed: no .n-tabs--left.bt-tabs-modal inside dialog', dialogEl);
+            return; // not a site-edit modal, or markup changed
+        }
 
         var tabsWrapper = outerTabs.querySelector('.n-tabs-wrapper');
         var tabPane = null;
@@ -304,8 +314,12 @@
                 break;
             }
         }
-        if (!tabsWrapper || !tabPane) return;
+        if (!tabsWrapper || !tabPane) {
+            dlog('bailed: found outerTabs but missing', { tabsWrapper: !!tabsWrapper, tabPane: !!tabPane }, outerTabs);
+            return;
+        }
 
+        dlog('attaching Migrate tab to', outerTabs);
         dialogEl.dataset.migrateAttached = 'true';
 
         var siteName = extractSiteName(dialogEl);
@@ -698,9 +712,16 @@
 
     function scan() {
         var dialogs = document.querySelectorAll('.n-dialog');
+        var withTabsModal = 0;
         for (var i = 0; i < dialogs.length; i++) {
             var dialogEl = dialogs[i];
-            if (dialogEl.querySelector('.bt-tabs-modal')) attach(dialogEl);
+            if (dialogEl.querySelector('.bt-tabs-modal')) {
+                withTabsModal++;
+                attach(dialogEl);
+            }
+        }
+        if (dialogs.length) {
+            dlog('scan(): found', dialogs.length, '.n-dialog element(s),', withTabsModal, 'with .bt-tabs-modal inside');
         }
     }
 
