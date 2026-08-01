@@ -7,6 +7,7 @@ import subprocess
 import time
 import re
 import socket
+import traceback
 
 # Try importing paramiko for SSH/SFTP testing and folder browsing
 try:
@@ -26,119 +27,86 @@ def log_error(err_type, message):
     except Exception:
         pass
 
+def _get_ssh_host_admin():
+    # aaPanel's Terminal module stores saved SSH hosts as AES-encrypted
+    # info.json files under config/ssh_info/<host>_<port>/, not in any
+    # sqlite table. Reuse the panel's own class so decryption (key from
+    # data/a_pass.pl) matches exactly what aaPanel itself uses.
+    panel_class = "/www/server/panel/class"
+    panel_class_v2 = "/www/server/panel/class_v2"
+    if panel_class not in sys.path:
+        sys.path.append(panel_class)
+    if panel_class_v2 not in sys.path:
+        sys.path.append(panel_class_v2)
+    import ssh_terminal_v2
+    return ssh_terminal_v2.ssh_host_admin()
+
 def load_node_credentials(node_id):
-    db_paths = [
-        "/www/server/panel/data/default.db",
-        "/www/server/panel/data/db/panel.db",
-        "/www/server/panel/data/panel.db"
-    ]
-    for path in db_paths:
-        if os.path.exists(path):
-            try:
-                import sqlite3
-                conn = sqlite3.connect(path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hosts'")
-                if cursor.fetchone():
-                    cursor.execute("PRAGMA table_info(hosts)")
-                    columns = [c[1] for c in cursor.fetchall()]
-                    id_col = "id"
-                    for col in columns:
-                        if col.lower() == "id":
-                            id_col = col
-                            break
-                    cursor.execute(f"SELECT * FROM hosts WHERE {id_col} = {int(node_id)}")
-                    row = cursor.fetchone()
-                    if row:
-                        node = {}
-                        for i, col in enumerate(columns):
-                            node[col] = row[i]
-                        conn.close()
-                        
-                        host = node.get("host")
-                        port = node.get("port") or 22
-                        username = node.get("username") or node.get("user") or "root"
-                        password = node.get("password") or node.get("pass") or ""
-                        key = node.get("key") or node.get("pkey") or node.get("private_key") or ""
-                        
-                        if (password and password.startswith("BT-0x")) or (key and key.startswith("BT-0x")):
-                            try:
-                                sys.path.append('/www/server/panel/class')
-                                import public
-                                if password and password.startswith("BT-0x"):
-                                    password = public.rsa_decrypt(password)
-                                if key and key.startswith("BT-0x"):
-                                    key = public.rsa_decrypt(key)
-                            except Exception as ex:
-                                log_error("DECRYPTION_ERROR", f"Failed to decrypt credentials for node {node_id}: {str(ex)}")
-                                
-                        auth_type = "key" if key else "password"
-                        return {
-                            "host": host,
-                            "port": int(port),
-                            "username": username,
-                            "password": password,
-                            "key": key,
-                            "auth_type": auth_type
-                        }
-                conn.close()
-            except Exception as e:
-                log_error("DB_LOAD_ERROR", f"Failed to load credentials from {path} for node {node_id}: {str(e)}")
-    return None
+    try:
+        ssh_admin = _get_ssh_host_admin()
+        info = ssh_admin.get_ssh_info(node_id)
+        if not info:
+            return None
+
+        host = info.get("host")
+        port = info.get("port") or 22
+        username = info.get("username") or "root"
+        password = info.get("password") or ""
+        key = info.get("pkey") or ""
+
+        return {
+            "host": host,
+            "port": int(port),
+            "username": username,
+            "password": password,
+            "key": key,
+            "auth_type": "key" if key else "password"
+        }
+    except Exception as e:
+        log_error("SSH_INFO_LOAD_ERROR", f"Failed to load credentials for node {node_id}: {str(e)}")
+        return None
 
 def get_hosts():
-    db_paths = [
-        "/www/server/panel/data/default.db",
-        "/www/server/panel/data/db/panel.db",
-        "/www/server/panel/data/panel.db"
-    ]
     hosts = []
-    import sqlite3
-    
-    for path in db_paths:
-        if os.path.exists(path):
-            if not os.access(path, os.R_OK):
-                log_error("PERMISSION_DENIED", f"Database file {path} exists but is not readable.")
-                continue
-            try:
-                conn = sqlite3.connect(path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hosts'")
-                if cursor.fetchone():
-                    cursor.execute("PRAGMA table_info(hosts)")
-                    columns = [c[1] for c in cursor.fetchall()]
-                    
-                    cursor.execute("SELECT * FROM hosts")
-                    rows = cursor.fetchall()
-                    for row in rows:
-                        node = {}
-                        for i, col in enumerate(columns):
-                            node[col] = row[i]
-                        
-                        node_id = node.get("id") or node.get("ID")
-                        host_ip = node.get("host")
-                        port = node.get("port") or 22
-                        user = node.get("username") or node.get("user") or "root"
-                        remark = node.get("remark") or node.get("name") or node.get("alias") or f"{user}@{host_ip}"
-                        
-                        has_password = bool(node.get("password") or node.get("pass"))
-                        has_key = bool(node.get("key") or node.get("pkey") or node.get("private_key"))
-                        
-                        hosts.append({
-                            "id": node_id,
-                            "host": host_ip,
-                            "port": int(port),
-                            "username": user,
-                            "remark": remark,
-                            "has_password": has_password,
-                            "has_key": has_key
-                        })
-                    conn.close()
-                    break
-                conn.close()
-            except Exception as e:
-                log_error("DB_READ_ERROR", f"Exception while reading database {path}: {str(e)}")
-        
+    try:
+        ssh_admin = _get_ssh_host_admin()
+    except Exception as e:
+        log_error("SSH_HOSTS_LOAD_ERROR", f"Failed to load aaPanel ssh_terminal_v2 module: {traceback.format_exc()}")
+        print_result(False, f"Could not read aaPanel's saved SSH hosts: {str(e)}")
+        return
+
+    save_path = ssh_admin._save_path
+    if not os.path.exists(save_path):
+        print_result(True, "Success", hosts)
+        return
+
+    for name in sorted(os.listdir(save_path)):
+        info_file = os.path.join(save_path, name, "info.json")
+        if not os.path.exists(info_file):
+            continue
+        try:
+            info = ssh_admin.get_ssh_info(name)
+        except Exception as e:
+            log_error("SSH_INFO_DECODE_ERROR", f"Failed to decrypt saved SSH host '{name}': {traceback.format_exc()}")
+            continue
+        if not info:
+            continue
+
+        host_ip = info.get("host")
+        port = info.get("port") or 22
+        user = info.get("username") or "root"
+        remark = info.get("ps") or f"{user}@{host_ip}"
+
+        hosts.append({
+            "id": name,
+            "host": host_ip,
+            "port": int(port),
+            "username": user,
+            "remark": remark,
+            "has_password": bool(info.get("password")),
+            "has_key": bool(info.get("pkey"))
+        })
+
     print_result(True, "Success", hosts)
 
 def get_sites():
