@@ -544,6 +544,10 @@ def register_database_in_aapanel(db_name, db_user, db_password):
                 log_error("SQLITE_REGISTER_ERROR", f"Failed to register db {db_name} in {path}: {str(e)}")
     return False
 
+def extract_wp_define(content, name):
+    m = re.search(r"define\s*\(\s*['\"]" + re.escape(name) + r"['\"]\s*,\s*['\"](.*?)['\"]\s*\)", content, re.DOTALL)
+    return m.group(1) if m else ""
+
 def migrate_database(config, log_file, update_status):
     db_migrate = config.get("db_migrate")
     if not db_migrate or str(db_migrate) != "1":
@@ -604,6 +608,43 @@ def migrate_database(config, log_file, update_status):
         
         with open(log_file, "a") as lf:
             lf.write(f"Parsed credentials for database: {db_name}\n")
+            lf.flush()
+    elif db_source_mode == "wp_config":
+        db_wp_config_path = config.get("db_wp_config_path", "")
+        if not db_wp_config_path:
+            with open(log_file, "a") as lf:
+                lf.write("Error: Remote wp-config.php path is not specified.\n")
+            return False, "Remote wp-config.php path is not specified."
+
+        with open(log_file, "a") as lf:
+            lf.write(f"Reading remote wp-config.php file at: {db_wp_config_path}\n")
+            lf.flush()
+
+        status, out, err = run_remote_ssh_command(config, f"cat '{db_wp_config_path}'")
+        if not status:
+            with open(log_file, "a") as lf:
+                lf.write(f"Error reading remote wp-config.php file: {err}\n")
+            return False, f"Failed to read remote wp-config.php: {err}"
+
+        db_name = extract_wp_define(out, "DB_NAME")
+        db_user = extract_wp_define(out, "DB_USER")
+        db_password = extract_wp_define(out, "DB_PASSWORD")
+        db_host_raw = extract_wp_define(out, "DB_HOST") or "localhost"
+        if ":" in db_host_raw:
+            host_part, port_part = db_host_raw.split(":", 1)
+            db_host = host_part
+            db_port = port_part if port_part.isdigit() else "3306"
+        else:
+            db_host = db_host_raw
+            db_port = "3306"
+
+        if not db_name or not db_user:
+            with open(log_file, "a") as lf:
+                lf.write("Error parsing wp-config.php -- could not find DB_NAME/DB_USER constants. Is this a valid WordPress config file?\n")
+            return False, "Could not find WordPress database constants (DB_NAME/DB_USER) in the remote wp-config.php."
+
+        with open(log_file, "a") as lf:
+            lf.write(f"Parsed WordPress database credentials for database: {db_name}\n")
             lf.flush()
     else:
         db_host = config.get("db_host", "127.0.0.1")
