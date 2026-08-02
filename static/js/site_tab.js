@@ -45,7 +45,7 @@
     var DEFAULT_EXCLUDES = ['.git', 'node_modules', 'vendor'];
     // Bump on every debug-relevant change so it's obvious from the console
     // whether a stale/cached copy of this script is actually running.
-    var DEBUG_BUILD = 'debug-7';
+    var DEBUG_BUILD = 'debug-8';
 
     // Forces every sibling .n-tab-pane other than ours to stay hidden while
     // our tab is active, regardless of how many there are (a second plugin
@@ -269,21 +269,21 @@
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Database Credentials Source</label>' +
             '<select class="mig-select mig-db-source-mode" style="width:100%;height:32px;border-radius:6px;">' +
-            '<option value="wp_config">Read from remote wp-config.php (WordPress)</option>' +
             '<option value="env">Read from remote .env file</option>' +
+            '<option value="wp_config">Read from remote wp-config.php (WordPress)</option>' +
             '<option value="manual">Enter credentials manually</option>' +
             '</select>' +
             '</div>' +
 
-            '<div class="mig-db-wpconfig-group" style="margin-bottom:14px;">' +
+            '<div class="mig-db-env-group" style="margin-bottom:14px;">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File Path</label>' +
+            '<input type="text" class="mig-input mig-db-env-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/.env">' +
+            '</div>' +
+
+            '<div class="mig-db-wpconfig-group" style="display:none;margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote wp-config.php Path</label>' +
             '<input type="text" class="mig-input mig-db-wpconfig-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/wp-config.php">' +
             '<div style="font-size:11px;opacity:0.6;margin-top:4px;">DB_NAME/DB_USER/DB_PASSWORD/DB_HOST are read from this file on the remote server when migration starts.</div>' +
-            '</div>' +
-
-            '<div class="mig-db-env-group" style="display:none;margin-bottom:14px;">' +
-            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File Path</label>' +
-            '<input type="text" class="mig-input mig-db-env-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/.env">' +
             '</div>' +
 
             '<div class="mig-db-manual-group" style="display:none;">' +
@@ -779,6 +779,11 @@
                 } else if (mode === 'env') {
                     var envPath = dbEnvPath.value.trim();
                     if (!envPath) { dbEnvPath.focus(); return; }
+                    if (!/\.env$/.test(envPath)) {
+                        var envSep = (envPath.charAt(envPath.length - 1) === '/') ? '' : '/';
+                        envPath = envPath + envSep + '.env';
+                        dbEnvPath.value = envPath;
+                    }
                     args.db_env_path = envPath;
                     summary.push('the database (credentials from .env)');
                 } else {
