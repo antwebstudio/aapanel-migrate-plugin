@@ -7,6 +7,7 @@ import subprocess
 import time
 import re
 import socket
+import traceback
 
 # Try importing paramiko for SSH/SFTP testing and folder browsing
 try:
@@ -26,119 +27,86 @@ def log_error(err_type, message):
     except Exception:
         pass
 
+def _get_ssh_host_admin():
+    # aaPanel's Terminal module stores saved SSH hosts as AES-encrypted
+    # info.json files under config/ssh_info/<host>_<port>/, not in any
+    # sqlite table. Reuse the panel's own class so decryption (key from
+    # data/a_pass.pl) matches exactly what aaPanel itself uses.
+    panel_class = "/www/server/panel/class"
+    panel_class_v2 = "/www/server/panel/class_v2"
+    if panel_class not in sys.path:
+        sys.path.append(panel_class)
+    if panel_class_v2 not in sys.path:
+        sys.path.append(panel_class_v2)
+    import ssh_terminal_v2
+    return ssh_terminal_v2.ssh_host_admin()
+
 def load_node_credentials(node_id):
-    db_paths = [
-        "/www/server/panel/data/default.db",
-        "/www/server/panel/data/db/panel.db",
-        "/www/server/panel/data/panel.db"
-    ]
-    for path in db_paths:
-        if os.path.exists(path):
-            try:
-                import sqlite3
-                conn = sqlite3.connect(path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hosts'")
-                if cursor.fetchone():
-                    cursor.execute("PRAGMA table_info(hosts)")
-                    columns = [c[1] for c in cursor.fetchall()]
-                    id_col = "id"
-                    for col in columns:
-                        if col.lower() == "id":
-                            id_col = col
-                            break
-                    cursor.execute(f"SELECT * FROM hosts WHERE {id_col} = {int(node_id)}")
-                    row = cursor.fetchone()
-                    if row:
-                        node = {}
-                        for i, col in enumerate(columns):
-                            node[col] = row[i]
-                        conn.close()
-                        
-                        host = node.get("host")
-                        port = node.get("port") or 22
-                        username = node.get("username") or node.get("user") or "root"
-                        password = node.get("password") or node.get("pass") or ""
-                        key = node.get("key") or node.get("pkey") or node.get("private_key") or ""
-                        
-                        if (password and password.startswith("BT-0x")) or (key and key.startswith("BT-0x")):
-                            try:
-                                sys.path.append('/www/server/panel/class')
-                                import public
-                                if password and password.startswith("BT-0x"):
-                                    password = public.rsa_decrypt(password)
-                                if key and key.startswith("BT-0x"):
-                                    key = public.rsa_decrypt(key)
-                            except Exception as ex:
-                                log_error("DECRYPTION_ERROR", f"Failed to decrypt credentials for node {node_id}: {str(ex)}")
-                                
-                        auth_type = "key" if key else "password"
-                        return {
-                            "host": host,
-                            "port": int(port),
-                            "username": username,
-                            "password": password,
-                            "key": key,
-                            "auth_type": auth_type
-                        }
-                conn.close()
-            except Exception as e:
-                log_error("DB_LOAD_ERROR", f"Failed to load credentials from {path} for node {node_id}: {str(e)}")
-    return None
+    try:
+        ssh_admin = _get_ssh_host_admin()
+        info = ssh_admin.get_ssh_info(node_id)
+        if not info:
+            return None
+
+        host = info.get("host")
+        port = info.get("port") or 22
+        username = info.get("username") or "root"
+        password = info.get("password") or ""
+        key = info.get("pkey") or ""
+
+        return {
+            "host": host,
+            "port": int(port),
+            "username": username,
+            "password": password,
+            "key": key,
+            "auth_type": "key" if key else "password"
+        }
+    except Exception as e:
+        log_error("SSH_INFO_LOAD_ERROR", f"Failed to load credentials for node {node_id}: {str(e)}")
+        return None
 
 def get_hosts():
-    db_paths = [
-        "/www/server/panel/data/default.db",
-        "/www/server/panel/data/db/panel.db",
-        "/www/server/panel/data/panel.db"
-    ]
     hosts = []
-    import sqlite3
-    
-    for path in db_paths:
-        if os.path.exists(path):
-            if not os.access(path, os.R_OK):
-                log_error("PERMISSION_DENIED", f"Database file {path} exists but is not readable.")
-                continue
-            try:
-                conn = sqlite3.connect(path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hosts'")
-                if cursor.fetchone():
-                    cursor.execute("PRAGMA table_info(hosts)")
-                    columns = [c[1] for c in cursor.fetchall()]
-                    
-                    cursor.execute("SELECT * FROM hosts")
-                    rows = cursor.fetchall()
-                    for row in rows:
-                        node = {}
-                        for i, col in enumerate(columns):
-                            node[col] = row[i]
-                        
-                        node_id = node.get("id") or node.get("ID")
-                        host_ip = node.get("host")
-                        port = node.get("port") or 22
-                        user = node.get("username") or node.get("user") or "root"
-                        remark = node.get("remark") or node.get("name") or node.get("alias") or f"{user}@{host_ip}"
-                        
-                        has_password = bool(node.get("password") or node.get("pass"))
-                        has_key = bool(node.get("key") or node.get("pkey") or node.get("private_key"))
-                        
-                        hosts.append({
-                            "id": node_id,
-                            "host": host_ip,
-                            "port": int(port),
-                            "username": user,
-                            "remark": remark,
-                            "has_password": has_password,
-                            "has_key": has_key
-                        })
-                    conn.close()
-                    break
-                conn.close()
-            except Exception as e:
-                log_error("DB_READ_ERROR", f"Exception while reading database {path}: {str(e)}")
-        
+    try:
+        ssh_admin = _get_ssh_host_admin()
+    except Exception as e:
+        log_error("SSH_HOSTS_LOAD_ERROR", f"Failed to load aaPanel ssh_terminal_v2 module: {traceback.format_exc()}")
+        print_result(False, f"Could not read aaPanel's saved SSH hosts: {str(e)}")
+        return
+
+    save_path = ssh_admin._save_path
+    if not os.path.exists(save_path):
+        print_result(True, "Success", hosts)
+        return
+
+    for name in sorted(os.listdir(save_path)):
+        info_file = os.path.join(save_path, name, "info.json")
+        if not os.path.exists(info_file):
+            continue
+        try:
+            info = ssh_admin.get_ssh_info(name)
+        except Exception as e:
+            log_error("SSH_INFO_DECODE_ERROR", f"Failed to decrypt saved SSH host '{name}': {traceback.format_exc()}")
+            continue
+        if not info:
+            continue
+
+        host_ip = info.get("host")
+        port = info.get("port") or 22
+        user = info.get("username") or "root"
+        remark = info.get("ps") or f"{user}@{host_ip}"
+
+        hosts.append({
+            "id": name,
+            "host": host_ip,
+            "port": int(port),
+            "username": user,
+            "remark": remark,
+            "has_password": bool(info.get("password")),
+            "has_key": bool(info.get("pkey"))
+        })
+
     print_result(True, "Success", hosts)
 
 def get_sites():
@@ -356,6 +324,427 @@ def list_remote_dir_shell(host, port, username, auth_type, password, key_content
     except Exception as e:
         print_result(False, f"Failed to list directory: {str(e)}")
 
+def get_local_mysql_root():
+    # 1. Try /www/server/panel/data/mysql-root.pl
+    root_pl_path = "/www/server/panel/data/mysql-root.pl"
+    if os.path.exists(root_pl_path):
+        try:
+            with open(root_pl_path, "r") as f:
+                pwd = f.read().strip()
+                if pwd:
+                    return pwd
+        except Exception:
+            pass
+
+    # 2. Try SQLite
+    db_paths = [
+        "/www/server/panel/data/default.db",
+        "/www/server/panel/data/db/panel.db",
+        "/www/server/panel/data/panel.db"
+    ]
+    for path in db_paths:
+        if os.path.exists(path):
+            try:
+                import sqlite3
+                conn = sqlite3.connect(path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='config'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT mysql_root FROM config LIMIT 1")
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        pwd = row[0].strip()
+                        conn.close()
+                        return pwd
+                conn.close()
+            except Exception:
+                pass
+    
+    # 3. Development / Laragon fallback (empty on Windows Laragon usually)
+    return ""
+
+def run_remote_ssh_command(config, command):
+    host = config.get("host")
+    port = int(config.get("port", 22))
+    username = config.get("username", "root")
+    auth_type = config.get("auth_type", "password")
+    password = config.get("password", "")
+    key_content = config.get("key", "")
+
+    if HAS_PARAMIKO:
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            if auth_type == "key" and key_content:
+                from io import StringIO
+                key_file = StringIO(key_content)
+                try:
+                    pkey = paramiko.RSAKey.from_private_key(key_file)
+                except Exception:
+                    key_file.seek(0)
+                    pkey = paramiko.Ed25519Key.from_private_key(key_file)
+                ssh.connect(host, port=port, username=username, pkey=pkey, timeout=10)
+            else:
+                ssh.connect(host, port=port, username=username, password=password, timeout=10)
+            
+            stdin, stdout, stderr = ssh.exec_command(command)
+            out_val = stdout.read().decode('utf-8', 'ignore')
+            err_val = stderr.read().decode('utf-8', 'ignore')
+            exit_status = stdout.channel.recv_exit_status()
+            ssh.close()
+            return exit_status == 0, out_val, err_val
+        except Exception as e:
+            return False, "", str(e)
+    else:
+        # Fallback to shell SSH
+        tmp_base = "C:/Windows/Temp" if sys.platform.startswith('win') else "/tmp"
+        if not os.path.exists(tmp_base):
+            tmp_base = "."
+        
+        key_path = None
+        if auth_type == "key" and key_content:
+            key_path = os.path.join(tmp_base, f"cmd_key_{int(time.time())}")
+            with open(key_path, "w") as f:
+                f.write(key_content)
+            os.chmod(key_path, 0o600)
+            ssh_cmd = f"ssh -i {key_path} -p {port} -o StrictHostKeyChecking=no {username}@{host} '{command}'"
+        else:
+            ssh_cmd = f"ssh -p {port} -o StrictHostKeyChecking=no {username}@{host} '{command}'"
+            use_sshpass = subprocess.call("which sshpass", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+            if use_sshpass:
+                ssh_cmd = f"sshpass -p '{password}' " + ssh_cmd
+        
+        try:
+            p = subprocess.Popen(ssh_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+            if key_path and os.path.exists(key_path):
+                os.remove(key_path)
+            return p.returncode == 0, out.decode('utf-8', 'ignore'), err.decode('utf-8', 'ignore')
+        except Exception as e:
+            if key_path and os.path.exists(key_path):
+                os.remove(key_path)
+            return False, "", str(e)
+
+def download_remote_file(config, remote_file, local_file):
+    host = config.get("host")
+    port = int(config.get("port", 22))
+    username = config.get("username", "root")
+    auth_type = config.get("auth_type", "password")
+    password = config.get("password", "")
+    key_content = config.get("key", "")
+
+    if HAS_PARAMIKO:
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            if auth_type == "key" and key_content:
+                from io import StringIO
+                key_file = StringIO(key_content)
+                try:
+                    pkey = paramiko.RSAKey.from_private_key(key_file)
+                except Exception:
+                    key_file.seek(0)
+                    pkey = paramiko.Ed25519Key.from_private_key(key_file)
+                ssh.connect(host, port=port, username=username, pkey=pkey, timeout=10)
+            else:
+                ssh.connect(host, port=port, username=username, password=password, timeout=10)
+            
+            sftp = ssh.open_sftp()
+            sftp.get(remote_file, local_file)
+            sftp.close()
+            ssh.close()
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+    else:
+        # Fallback to scp
+        tmp_base = "C:/Windows/Temp" if sys.platform.startswith('win') else "/tmp"
+        if not os.path.exists(tmp_base):
+            tmp_base = "."
+        
+        key_path = None
+        if auth_type == "key" and key_content:
+            key_path = os.path.join(tmp_base, f"scp_key_{int(time.time())}")
+            with open(key_path, "w") as f:
+                f.write(key_content)
+            os.chmod(key_path, 0o600)
+            scp_cmd = f"scp -i {key_path} -P {port} -o StrictHostKeyChecking=no {username}@{host}:{remote_file} {local_file}"
+        else:
+            scp_cmd = f"scp -P {port} -o StrictHostKeyChecking=no {username}@{host}:{remote_file} {local_file}"
+            use_sshpass = subprocess.call("which sshpass", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+            if use_sshpass:
+                scp_cmd = f"sshpass -p '{password}' " + scp_cmd
+        
+        try:
+            p = subprocess.Popen(scp_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+            if key_path and os.path.exists(key_path):
+                os.remove(key_path)
+            if p.returncode == 0:
+                return True, ""
+            else:
+                return False, err.decode('utf-8', 'ignore')
+        except Exception as e:
+            if key_path and os.path.exists(key_path):
+                os.remove(key_path)
+            return False, str(e)
+
+def run_local_mysql_query(queries, root_password):
+    if root_password:
+        cmd = ["mysql", "-uroot", f"-p{root_password}", "-e", queries]
+    else:
+        cmd = ["mysql", "-uroot", "-e", queries]
+    
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = p.communicate()
+        return p.returncode == 0, out, err
+    except Exception as e:
+        return False, b"", str(e).encode('utf-8')
+
+def import_local_sql_dump(db_name, root_password, dump_path):
+    if root_password:
+        cmd = ["mysql", "-uroot", f"-p{root_password}", db_name]
+    else:
+        cmd = ["mysql", "-uroot", db_name]
+    
+    try:
+        with open(dump_path, "rb") as f:
+            p = subprocess.Popen(cmd, stdin=f, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out, err = p.communicate()
+            return p.returncode == 0, out, err
+    except Exception as e:
+        return False, b"", str(e).encode('utf-8')
+
+def register_database_in_aapanel(db_name, db_user, db_password):
+    db_paths = [
+        "/www/server/panel/data/default.db",
+        "/www/server/panel/data/db/panel.db",
+        "/www/server/panel/data/panel.db"
+    ]
+    for path in db_paths:
+        if os.path.exists(path):
+            try:
+                import sqlite3
+                conn = sqlite3.connect(path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='databases'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT id FROM databases WHERE name = ?", (db_name,))
+                    if not cursor.fetchone():
+                        addtime = time.strftime('%Y-%m-%d %H:%M:%S')
+                        cursor.execute(
+                            "INSERT INTO databases (name, username, password, accept, ps, addtime) VALUES (?, ?, ?, ?, ?, ?)",
+                            (db_name, db_user, db_password, '127.0.0.1', 'Migrated via SSH Plugin', addtime)
+                        )
+                        conn.commit()
+                conn.close()
+                return True
+            except Exception as e:
+                log_error("SQLITE_REGISTER_ERROR", f"Failed to register db {db_name} in {path}: {str(e)}")
+    return False
+
+def extract_wp_define(content, name):
+    m = re.search(r"define\s*\(\s*['\"]" + re.escape(name) + r"['\"]\s*,\s*['\"](.*?)['\"]\s*\)", content, re.DOTALL)
+    return m.group(1) if m else ""
+
+def migrate_database(config, log_file, update_status):
+    db_migrate = config.get("db_migrate")
+    if not db_migrate or str(db_migrate) != "1":
+        return True, "No database migration requested."
+
+    with open(log_file, "a") as lf:
+        lf.write("\n=========================================\n")
+        lf.write("Starting Database Migration...\n")
+        lf.flush()
+
+    db_source_mode = config.get("db_source_mode", "env")
+    db_host = "127.0.0.1"
+    db_port = "3306"
+    db_name = ""
+    db_user = ""
+    db_password = ""
+
+    if db_source_mode == "env":
+        db_env_path = config.get("db_env_path", "")
+        if not db_env_path:
+            with open(log_file, "a") as lf:
+                lf.write("Error: Remote .env file path is not specified.\n")
+            return False, "Remote .env file path is not specified."
+        
+        with open(log_file, "a") as lf:
+            lf.write(f"Reading remote .env file at: {db_env_path}\n")
+            lf.flush()
+        
+        status, out, err = run_remote_ssh_command(config, f"cat '{db_env_path}'")
+        if not status:
+            with open(log_file, "a") as lf:
+                lf.write(f"Error reading remote .env file: {err}\n")
+            return False, f"Failed to read remote .env: {err}"
+        
+        env_vars = {}
+        for line in out.splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, val = line.split('=', 1)
+                key = key.strip()
+                val = val.strip()
+                if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                    val = val[1:-1]
+                env_vars[key] = val
+        
+        db_host = env_vars.get("DB_HOST", "127.0.0.1")
+        db_port = env_vars.get("DB_PORT", "3306")
+        db_name = env_vars.get("DB_DATABASE") or env_vars.get("DB_NAME") or env_vars.get("MYSQL_DATABASE")
+        db_user = env_vars.get("DB_USERNAME") or env_vars.get("DB_USER") or env_vars.get("MYSQL_USER")
+        db_password = env_vars.get("DB_PASSWORD") or env_vars.get("DB_PASS") or env_vars.get("MYSQL_PASSWORD") or ""
+
+        if not db_name or not db_user:
+            with open(log_file, "a") as lf:
+                lf.write(f"Error parsing .env file. Environment variables: {list(env_vars.keys())}\n")
+            return False, "Failed to parse database name or user from remote .env file."
+        
+        with open(log_file, "a") as lf:
+            lf.write(f"Parsed credentials for database: {db_name}\n")
+            lf.flush()
+    elif db_source_mode == "wp_config":
+        db_wp_config_path = config.get("db_wp_config_path", "")
+        if not db_wp_config_path:
+            with open(log_file, "a") as lf:
+                lf.write("Error: Remote wp-config.php path is not specified.\n")
+            return False, "Remote wp-config.php path is not specified."
+
+        with open(log_file, "a") as lf:
+            lf.write(f"Reading remote wp-config.php file at: {db_wp_config_path}\n")
+            lf.flush()
+
+        status, out, err = run_remote_ssh_command(config, f"cat '{db_wp_config_path}'")
+        if not status:
+            with open(log_file, "a") as lf:
+                lf.write(f"Error reading remote wp-config.php file: {err}\n")
+            return False, f"Failed to read remote wp-config.php: {err}"
+
+        db_name = extract_wp_define(out, "DB_NAME")
+        db_user = extract_wp_define(out, "DB_USER")
+        db_password = extract_wp_define(out, "DB_PASSWORD")
+        db_host_raw = extract_wp_define(out, "DB_HOST") or "localhost"
+        if ":" in db_host_raw:
+            host_part, port_part = db_host_raw.split(":", 1)
+            db_host = host_part
+            db_port = port_part if port_part.isdigit() else "3306"
+        else:
+            db_host = db_host_raw
+            db_port = "3306"
+
+        if not db_name or not db_user:
+            with open(log_file, "a") as lf:
+                lf.write("Error parsing wp-config.php -- could not find DB_NAME/DB_USER constants. Is this a valid WordPress config file?\n")
+            return False, "Could not find WordPress database constants (DB_NAME/DB_USER) in the remote wp-config.php."
+
+        with open(log_file, "a") as lf:
+            lf.write(f"Parsed WordPress database credentials for database: {db_name}\n")
+            lf.flush()
+    else:
+        db_host = config.get("db_host", "127.0.0.1")
+        db_port = config.get("db_port", "3306")
+        db_name = config.get("db_name", "")
+        db_user = config.get("db_user", "")
+        db_password = config.get("db_password", "")
+
+    with open(log_file, "a") as lf:
+        lf.write(f"Source Database Host: {db_host}:{db_port}\n")
+        lf.write(f"Source Database Name: {db_name}\n")
+        lf.write(f"Source Database User: {db_user}\n")
+        lf.write("Exporting remote database using mysqldump...\n")
+        lf.flush()
+
+    task_id = config.get("task_id", str(int(time.time())))
+    remote_sql_path = f"/tmp/db_migrate_{task_id}.sql"
+    
+    tmp_base = "C:/Windows/Temp" if sys.platform.startswith('win') else "/tmp"
+    if not os.path.exists(tmp_base):
+        tmp_base = "."
+    local_sql_path = os.path.join(tmp_base, f"db_migrate_{task_id}.sql")
+
+    db_password_escaped = db_password.replace("'", "'\\''")
+    dump_cmd = f"mysqldump -h '{db_host}' -P '{db_port}' -u '{db_user}' -p'{db_password_escaped}' '{db_name}' > '{remote_sql_path}'"
+    status, out, err = run_remote_ssh_command(config, dump_cmd)
+    if not status:
+        with open(log_file, "a") as lf:
+            lf.write(f"Error running remote mysqldump: {err}\n")
+        return False, f"Remote mysqldump failed: {err}"
+
+    with open(log_file, "a") as lf:
+        lf.write("Remote database exported successfully. Downloading SQL file to local...\n")
+        lf.flush()
+
+    dl_status, dl_err = download_remote_file(config, remote_sql_path, local_sql_path)
+    if not dl_status:
+        with open(log_file, "a") as lf:
+            lf.write(f"Error downloading SQL file: {dl_err}\n")
+        run_remote_ssh_command(config, f"rm -f '{remote_sql_path}'")
+        return False, f"Failed to download SQL dump: {dl_err}"
+
+    with open(log_file, "a") as lf:
+        lf.write("SQL file downloaded successfully. Setting up local database and users...\n")
+        lf.flush()
+
+    root_pwd = get_local_mysql_root()
+    sql_queries = (
+        f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
+        f"CREATE USER IF NOT EXISTS '{db_user}'@'localhost' IDENTIFIED BY '{db_password}';\n"
+        f"ALTER USER '{db_user}'@'localhost' IDENTIFIED BY '{db_password}';\n"
+        f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'localhost';\n"
+        f"CREATE USER IF NOT EXISTS '{db_user}'@'127.0.0.1' IDENTIFIED BY '{db_password}';\n"
+        f"ALTER USER '{db_user}'@'127.0.0.1' IDENTIFIED BY '{db_password}';\n"
+        f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'127.0.0.1';\n"
+        f"CREATE USER IF NOT EXISTS '{db_user}'@'%' IDENTIFIED BY '{db_password}';\n"
+        f"ALTER USER '{db_user}'@'%' IDENTIFIED BY '{db_password}';\n"
+        f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%';\n"
+        f"FLUSH PRIVILEGES;"
+    )
+
+    db_status, db_out, db_err = run_local_mysql_query(sql_queries, root_pwd)
+    if not db_status:
+        with open(log_file, "a") as lf:
+            lf.write(f"Error creating local database/user: {db_err.decode('utf-8', 'ignore')}\n")
+        run_remote_ssh_command(config, f"rm -f '{remote_sql_path}'")
+        if os.path.exists(local_sql_path):
+            os.remove(local_sql_path)
+        return False, f"Failed to create local database/user: {db_err.decode('utf-8', 'ignore')}"
+
+    with open(log_file, "a") as lf:
+        lf.write("Local database and user configured. Importing SQL dump...\n")
+        lf.flush()
+
+    imp_status, imp_out, imp_err = import_local_sql_dump(db_name, root_pwd, local_sql_path)
+    if not imp_status:
+        with open(log_file, "a") as lf:
+            lf.write(f"Error importing SQL dump: {imp_err.decode('utf-8', 'ignore')}\n")
+        run_remote_ssh_command(config, f"rm -f '{remote_sql_path}'")
+        if os.path.exists(local_sql_path):
+            os.remove(local_sql_path)
+        return False, f"Failed to import local SQL: {imp_err.decode('utf-8', 'ignore')}"
+
+    with open(log_file, "a") as lf:
+        lf.write("SQL dump imported successfully! Registering database in aaPanel...\n")
+        lf.flush()
+
+    register_database_in_aapanel(db_name, db_user, db_password)
+
+    run_remote_ssh_command(config, f"rm -f '{remote_sql_path}'")
+    if os.path.exists(local_sql_path):
+        os.remove(local_sql_path)
+
+    with open(log_file, "a") as lf:
+        lf.write("Database Migration Completed Successfully!\n")
+        lf.write("=========================================\n\n")
+        lf.flush()
+
+    return True, "Database migrated successfully."
+
 def run_copy(config):
     node_id = config.get("node_id")
     if node_id:
@@ -395,14 +784,29 @@ def run_copy(config):
                 "updated_at": int(time.time())
             }, sf)
 
-    if not os.path.exists(local_dir):
-        try:
-            os.makedirs(local_dir, 0o755)
-        except Exception as e:
-            update_status(0, "", "", "error", f"Failed to create local directory: {str(e)}")
-            with open(log_file, "a") as lf:
-                lf.write(f"Error: Failed to create local directory: {str(e)}\n")
-            print_result(False, f"Failed to create local directory: {str(e)}")
+    db_only = config.get("db_only")
+    is_db_only = db_only and (str(db_only) == "1" or db_only is True)
+
+    if not is_db_only:
+        if not os.path.exists(local_dir):
+            try:
+                os.makedirs(local_dir, 0o755)
+            except Exception as e:
+                update_status(0, "", "", "error", f"Failed to create local directory: {str(e)}")
+                with open(log_file, "a") as lf:
+                    lf.write(f"Error: Failed to create local directory: {str(e)}\n")
+                print_result(False, f"Failed to create local directory: {str(e)}")
+
+    # Core database migration hook execution
+    db_success, db_msg = migrate_database(config, log_file, update_status)
+    if not db_success:
+        update_status(0, "", "", "error", f"Database Migration Failed: {db_msg}")
+        print_result(False, f"Database Migration Failed: {db_msg}")
+
+    # If database only migration, finish the task cleanly here
+    if is_db_only:
+        update_status(100, "", "", "success")
+        print_result(True, "Database Migration Completed Successfully!")
 
     rsync_cmd = ["rsync", "-avz", "--progress"]
     

@@ -45,7 +45,7 @@
     var DEFAULT_EXCLUDES = ['.git', 'node_modules', 'vendor'];
     // Bump on every debug-relevant change so it's obvious from the console
     // whether a stale/cached copy of this script is actually running.
-    var DEBUG_BUILD = 'debug-6';
+    var DEBUG_BUILD = 'debug-7';
 
     // Forces every sibling .n-tab-pane other than ours to stay hidden while
     // our tab is active, regardless of how many there are (a second plugin
@@ -187,8 +187,8 @@
 
         pane.innerHTML = '' +
             '<div class="mig-form" style="max-height:640px;overflow-y:auto;padding-right:6px;">' +
-            '<p style="font-size:12px;opacity:0.65;margin:0 0 14px;">Pull files for this website from a remote server over SSH using rsync. ' +
-            'The destination is always this site\'s own web root.</p>' +
+            '<p style="font-size:12px;opacity:0.65;margin:0 0 14px;">Pull files and/or a database for this website from a remote server over SSH. ' +
+            'Files transfer via rsync into this site\'s own web root; the database is exported with mysqldump and imported into a matching local database.</p>' +
 
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">SSH Source Node</label>' +
@@ -230,6 +230,15 @@
             '</div>' +
 
             '<div style="margin-bottom:14px;">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">What to migrate</label>' +
+            '<div style="display:flex;gap:20px;flex-wrap:wrap;">' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-files-toggle" checked> Files</label>' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-db-toggle"> Database</label>' +
+            '</div>' +
+            '</div>' +
+
+            '<div class="mig-files-section">' +
+            '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote Source Path</label>' +
             '<input type="text" class="mig-input mig-remote-dir" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site">' +
             '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' +
@@ -253,6 +262,48 @@
             '<div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-sync-mode"> Sync Mode (delete local extras)</label>' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-overwrite" checked> Overwrite existing</label>' +
+            '</div>' +
+            '</div>' +
+
+            '<div class="mig-db-section" style="display:none;">' +
+            '<div style="margin-bottom:14px;">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Database Credentials Source</label>' +
+            '<select class="mig-select mig-db-source-mode" style="width:100%;height:32px;border-radius:6px;">' +
+            '<option value="wp_config">Read from remote wp-config.php (WordPress)</option>' +
+            '<option value="env">Read from remote .env file</option>' +
+            '<option value="manual">Enter credentials manually</option>' +
+            '</select>' +
+            '</div>' +
+
+            '<div class="mig-db-wpconfig-group" style="margin-bottom:14px;">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote wp-config.php Path</label>' +
+            '<input type="text" class="mig-input mig-db-wpconfig-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/wp-config.php">' +
+            '<div style="font-size:11px;opacity:0.6;margin-top:4px;">DB_NAME/DB_USER/DB_PASSWORD/DB_HOST are read from this file on the remote server when migration starts.</div>' +
+            '</div>' +
+
+            '<div class="mig-db-env-group" style="display:none;margin-bottom:14px;">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File Path</label>' +
+            '<input type="text" class="mig-input mig-db-env-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/.env">' +
+            '</div>' +
+
+            '<div class="mig-db-manual-group" style="display:none;">' +
+            '<div style="display:flex;gap:10px;margin-bottom:10px;">' +
+            '<div style="flex:2;"><label style="display:block;font-size:12px;margin-bottom:4px;">Remote DB Host</label>' +
+            '<input type="text" class="mig-input mig-db-host" style="width:100%;height:30px;box-sizing:border-box;border-radius:6px;padding:0 8px;" value="127.0.0.1"></div>' +
+            '<div style="flex:1;"><label style="display:block;font-size:12px;margin-bottom:4px;">Port</label>' +
+            '<input type="number" class="mig-input mig-db-port" style="width:100%;height:30px;box-sizing:border-box;border-radius:6px;padding:0 8px;" value="3306"></div>' +
+            '</div>' +
+            '<div style="display:flex;gap:10px;margin-bottom:10px;">' +
+            '<div style="flex:1;"><label style="display:block;font-size:12px;margin-bottom:4px;">Database Name</label>' +
+            '<input type="text" class="mig-input mig-db-name" style="width:100%;height:30px;box-sizing:border-box;border-radius:6px;padding:0 8px;"></div>' +
+            '<div style="flex:1;"><label style="display:block;font-size:12px;margin-bottom:4px;">Username</label>' +
+            '<input type="text" class="mig-input mig-db-user" style="width:100%;height:30px;box-sizing:border-box;border-radius:6px;padding:0 8px;"></div>' +
+            '</div>' +
+            '<div style="margin-bottom:14px;"><label style="display:block;font-size:12px;margin-bottom:4px;">Password</label>' +
+            '<input type="password" class="mig-input mig-db-password" style="width:100%;height:30px;box-sizing:border-box;border-radius:6px;padding:0 8px;"></div>' +
+            '</div>' +
+
+            '<div style="font-size:11px;opacity:0.6;margin-bottom:16px;">A matching local database, user, and grants are created automatically; the dump is imported and registered in aaPanel.</div>' +
             '</div>' +
 
             '<button type="button" class="mig-btn mig-btn-primary mig-start-btn" ' +
@@ -388,11 +439,26 @@
         var keyGroup = ourPane.querySelector('.mig-key-group');
         var testBtn = ourPane.querySelector('.mig-test-conn');
         var testStatus = ourPane.querySelector('.mig-test-status');
+        var filesToggle = ourPane.querySelector('.mig-files-toggle');
+        var filesSection = ourPane.querySelector('.mig-files-section');
+        var dbToggle = ourPane.querySelector('.mig-db-toggle');
+        var dbSection = ourPane.querySelector('.mig-db-section');
         var remoteDirInput = ourPane.querySelector('.mig-remote-dir');
         var destHint = ourPane.querySelector('.mig-dest-hint');
         var excludeInput = ourPane.querySelector('.mig-exclude');
         var syncMode = ourPane.querySelector('.mig-sync-mode');
         var overwrite = ourPane.querySelector('.mig-overwrite');
+        var dbSourceMode = ourPane.querySelector('.mig-db-source-mode');
+        var dbWpConfigGroup = ourPane.querySelector('.mig-db-wpconfig-group');
+        var dbWpConfigPath = ourPane.querySelector('.mig-db-wpconfig-path');
+        var dbEnvGroup = ourPane.querySelector('.mig-db-env-group');
+        var dbEnvPath = ourPane.querySelector('.mig-db-env-path');
+        var dbManualGroup = ourPane.querySelector('.mig-db-manual-group');
+        var dbHost = ourPane.querySelector('.mig-db-host');
+        var dbPort = ourPane.querySelector('.mig-db-port');
+        var dbName = ourPane.querySelector('.mig-db-name');
+        var dbUser = ourPane.querySelector('.mig-db-user');
+        var dbPassword = ourPane.querySelector('.mig-db-password');
         var startBtn = ourPane.querySelector('.mig-start-btn');
         var historyBtn = ourPane.querySelector('.mig-history-btn');
         var form = ourPane.querySelector('.mig-form');
@@ -518,6 +584,34 @@
 
         refreshNodesBtn.addEventListener('click', loadNodes);
 
+        filesToggle.addEventListener('change', function () {
+            filesSection.style.display = this.checked ? '' : 'none';
+        });
+
+        dbToggle.addEventListener('change', function () {
+            dbSection.style.display = this.checked ? '' : 'none';
+        });
+
+        dbSourceMode.addEventListener('change', function () {
+            dbWpConfigGroup.style.display = 'none';
+            dbEnvGroup.style.display = 'none';
+            dbManualGroup.style.display = 'none';
+            if (this.value === 'wp_config') dbWpConfigGroup.style.display = '';
+            else if (this.value === 'env') dbEnvGroup.style.display = '';
+            else dbManualGroup.style.display = '';
+        });
+
+        // Suggest wp-config.php / .env paths alongside the remote source dir
+        // once the user starts typing it, without clobbering anything they
+        // already typed there themselves.
+        remoteDirInput.addEventListener('input', function () {
+            var dir = remoteDirInput.value.trim();
+            if (!dir) return;
+            var sep = (dir.charAt(dir.length - 1) === '/') ? '' : '/';
+            if (!dbWpConfigPath.value.trim()) dbWpConfigPath.value = dir + sep + 'wp-config.php';
+            if (!dbEnvPath.value.trim()) dbEnvPath.value = dir + sep + '.env';
+        });
+
         ourPane.querySelectorAll('[data-fill]').forEach(function (chip) {
             chip.addEventListener('click', function () {
                 var path = chip.getAttribute('data-fill');
@@ -630,13 +724,27 @@
         startBtn.addEventListener('click', function () {
             if (!resolvedLocalDir) {
                 testStatus.textContent = 'Destination path is not resolved yet.';
+                testStatus.style.color = '#ed4014';
                 return;
             }
-            var remoteDir = remoteDirInput.value.trim();
-            if (!remoteDir) {
-                remoteDirInput.focus();
+
+            var filesEnabled = filesToggle.checked;
+            var dbEnabled = dbToggle.checked;
+            if (!filesEnabled && !dbEnabled) {
+                testStatus.textContent = 'Select at least one of Files or Database to migrate.';
+                testStatus.style.color = '#ed4014';
                 return;
             }
+
+            var remoteDir = '';
+            if (filesEnabled) {
+                remoteDir = remoteDirInput.value.trim();
+                if (!remoteDir) {
+                    remoteDirInput.focus();
+                    return;
+                }
+            }
+
             var res = gatherSshArgs();
             if (res.error) {
                 testStatus.textContent = res.error;
@@ -644,15 +752,57 @@
                 return;
             }
             var args = res.args;
-            args.remote_dir = remoteDir;
-            args.local_dir = resolvedLocalDir;
-            args.exclude_folders = excludeInput.value.trim();
-            args.sync_mode = syncMode.checked ? 1 : 0;
-            args.overwrite = overwrite.checked ? 1 : 0;
+            var summary = [];
 
-            var warn = syncMode.checked ?
-                ' Sync Mode will delete files already in ' + resolvedLocalDir + ' that do not exist remotely.' : '';
-            if (!window.confirm('Migrate files from the remote server into ' + resolvedLocalDir + '?' + warn)) return;
+            if (filesEnabled) {
+                args.remote_dir = remoteDir;
+                args.local_dir = resolvedLocalDir;
+                args.exclude_folders = excludeInput.value.trim();
+                args.sync_mode = syncMode.checked ? 1 : 0;
+                args.overwrite = overwrite.checked ? 1 : 0;
+                summary.push('files into ' + resolvedLocalDir);
+            } else {
+                // No files requested -- tells the backend to skip the rsync
+                // step entirely and only run the database migration below.
+                args.db_only = 1;
+            }
+
+            if (dbEnabled) {
+                args.db_migrate = 1;
+                var mode = dbSourceMode.value;
+                args.db_source_mode = mode;
+                if (mode === 'wp_config') {
+                    var wpPath = dbWpConfigPath.value.trim();
+                    if (!wpPath) { dbWpConfigPath.focus(); return; }
+                    args.db_wp_config_path = wpPath;
+                    summary.push('the database (credentials from wp-config.php)');
+                } else if (mode === 'env') {
+                    var envPath = dbEnvPath.value.trim();
+                    if (!envPath) { dbEnvPath.focus(); return; }
+                    args.db_env_path = envPath;
+                    summary.push('the database (credentials from .env)');
+                } else {
+                    var manualName = dbName.value.trim();
+                    var manualUser = dbUser.value.trim();
+                    if (!manualName || !manualUser) {
+                        testStatus.textContent = 'Database name and username are required for manual mode.';
+                        testStatus.style.color = '#ed4014';
+                        return;
+                    }
+                    args.db_host = dbHost.value.trim() || '127.0.0.1';
+                    args.db_port = dbPort.value.trim() || '3306';
+                    args.db_name = manualName;
+                    args.db_user = manualUser;
+                    args.db_password = dbPassword.value.trim();
+                    summary.push('the database "' + manualName + '"');
+                }
+            }
+
+            var confirmMsg = 'Migrate ' + summary.join(' and ') + ' from the remote server?';
+            if (filesEnabled && syncMode.checked) {
+                confirmMsg += ' Sync Mode will delete local files that do not exist remotely.';
+            }
+            if (!window.confirm(confirmMsg)) return;
 
             startBtn.disabled = true;
             requestPlugin('start_copy', args, function (data) {
