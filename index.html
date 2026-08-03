@@ -1124,6 +1124,7 @@
                 $('#db-ssh-node-select').prop('disabled', false);
                 $('#db-custom-auth-box').slideUp(250);
             }
+            this.scan_db_env_files();
         },
 
         // Trigger input fields on DB auth type changes
@@ -1145,6 +1146,7 @@
                 $('#db-custom-ssh-toggle').prop('checked', false);
                 $('#db-custom-auth-box').hide();
             }
+            this.scan_db_env_files();
         },
 
         // Test DB SSH Connection
@@ -1970,12 +1972,17 @@
     plugin_view.load_nodes();
     plugin_view.load_websites();
 
-    // Debounced re-scan for .env files as the Database Migration tab's remote path is typed
+    // Debounced re-scan for .env files as the Database Migration tab's remote
+    // path or custom SSH host is typed (node/toggle changes re-scan immediately
+    // via on_db_node_change/toggle_db_custom_form instead, since those are
+    // discrete selections rather than continuous typing)
     var db_env_scan_timer = null;
-    $('#db-remote-dir').on('input', function() {
+    function scheduleDbEnvScan() {
         clearTimeout(db_env_scan_timer);
         db_env_scan_timer = setTimeout(function() {
             if ($('#db-source-mode').val() === 'env') plugin_view.scan_db_env_files();
         }, 700);
-    });
+    }
+    $('#db-remote-dir').on('input', scheduleDbEnvScan);
+    $('#db-ssh-host').on('input', scheduleDbEnvScan);
 </script>

@@ -639,9 +639,14 @@
                 customBox.style.display = 'none';
             }
             refreshStartButtonState();
+            scanEnvFiles();
         });
 
-        hostInput.addEventListener('input', refreshStartButtonState);
+        hostInput.addEventListener('input', function () {
+            refreshStartButtonState();
+            clearTimeout(envScanTimer);
+            envScanTimer = setTimeout(scanEnvFiles, 700);
+        });
 
         authType.addEventListener('change', function () {
             if (this.value === 'key') {
@@ -659,6 +664,7 @@
                 customBox.style.display = 'none';
             }
             refreshStartButtonState();
+            scanEnvFiles();
         });
 
         refreshNodesBtn.addEventListener('click', loadNodes);
