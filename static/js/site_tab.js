@@ -307,6 +307,7 @@
             '<div style="font-size:11px;opacity:0.6;margin-bottom:16px;">A matching local database, user, and grants are created automatically; the dump is imported and registered in aaPanel.</div>' +
             '</div>' +
 
+            '<div class="mig-form-status" style="font-size:12px;margin-bottom:8px;min-height:16px;"></div>' +
             '<button type="button" class="mig-btn mig-btn-primary mig-start-btn" ' +
             'style="width:100%;padding:9px 0;border:none;border-radius:6px;background:#1a94ff;color:#fff;font-weight:600;cursor:pointer;">Start Migration</button>' +
             '<button type="button" class="mig-btn mig-btn-secondary mig-history-btn" ' +
@@ -477,7 +478,9 @@
         var dbName = ourPane.querySelector('.mig-db-name');
         var dbUser = ourPane.querySelector('.mig-db-user');
         var dbPassword = ourPane.querySelector('.mig-db-password');
+        var hostInput = ourPane.querySelector('.mig-host');
         var startBtn = ourPane.querySelector('.mig-start-btn');
+        var formStatus = ourPane.querySelector('.mig-form-status');
         var historyBtn = ourPane.querySelector('.mig-history-btn');
         var form = ourPane.querySelector('.mig-form');
         var transferPanel = ourPane.querySelector('.mig-transfer-panel');
@@ -555,13 +558,13 @@
         function resolveDestination() {
             if (!siteName) {
                 destHint.textContent = 'Could not detect the site name from the dialog title.';
-                startBtn.disabled = true;
+                refreshStartButtonState();
                 return;
             }
             requestPlugin('get_websites', {}, function (data) {
                 if (!data || !data.status) {
                     destHint.textContent = 'Failed to resolve this site\'s path: ' + ((data && (data.message || data.msg)) || 'unknown error');
-                    startBtn.disabled = true;
+                    refreshStartButtonState();
                     return;
                 }
                 var list = data.data || [];
@@ -571,13 +574,54 @@
                 }
                 if (!match) {
                     destHint.textContent = 'Could not find a registered website matching "' + siteName + '".';
-                    startBtn.disabled = true;
+                    refreshStartButtonState();
                     return;
                 }
                 resolvedLocalDir = match.path;
                 destHint.textContent = resolvedLocalDir;
-                startBtn.disabled = false;
+                refreshStartButtonState();
             });
+        }
+
+        // Recompute whether everything required to start a migration is
+        // filled in, and reflect it on the Start Migration button so it's
+        // visibly disabled (instead of silently no-oping, or writing an
+        // error into an element hidden inside the collapsed custom-SSH box)
+        // whenever something is still missing.
+        function refreshStartButtonState() {
+            var ready = true;
+
+            if (!resolvedLocalDir) {
+                ready = false;
+            } else {
+                var filesEnabled = filesToggle.checked;
+                var dbEnabled = dbToggle.checked;
+                if (!filesEnabled && !dbEnabled) {
+                    ready = false;
+                } else {
+                    if (customToggle.checked) {
+                        if (!hostInput.value.trim()) ready = false;
+                    } else if (!nodeSelect.value) {
+                        ready = false;
+                    }
+
+                    if (ready) {
+                        var envModeSelected = dbEnabled && dbSourceMode.value === 'env';
+                        if ((filesEnabled || envModeSelected) && !remoteDirInput.value.trim()) ready = false;
+                    }
+
+                    if (ready && dbEnabled) {
+                        var mode = dbSourceMode.value;
+                        if (mode === 'wp_config' && !dbWpConfigPath.value.trim()) ready = false;
+                        else if (mode === 'env' && !envSelect.value) ready = false;
+                        else if (mode === 'manual' && (!dbName.value.trim() || !dbUser.value.trim())) ready = false;
+                    }
+                }
+            }
+
+            startBtn.disabled = !ready;
+            startBtn.style.opacity = ready ? '1' : '0.5';
+            startBtn.style.cursor = ready ? 'pointer' : 'not-allowed';
         }
 
         customToggle.addEventListener('change', function () {
@@ -588,7 +632,10 @@
                 nodeSelect.disabled = false;
                 customBox.style.display = 'none';
             }
+            refreshStartButtonState();
         });
+
+        hostInput.addEventListener('input', refreshStartButtonState);
 
         authType.addEventListener('change', function () {
             if (this.value === 'key') {
@@ -605,6 +652,7 @@
                 customToggle.checked = false;
                 customBox.style.display = 'none';
             }
+            refreshStartButtonState();
         });
 
         refreshNodesBtn.addEventListener('click', loadNodes);
@@ -627,6 +675,7 @@
             if (!remotePath) {
                 envScanStatus.textContent = 'Enter the remote source path above to search for a .env file.';
                 envScanStatus.style.color = theme.textColor;
+                refreshStartButtonState();
                 return;
             }
 
@@ -634,6 +683,7 @@
             if (res.error) {
                 envScanStatus.textContent = res.error;
                 envScanStatus.style.color = '#ed4014';
+                refreshStartButtonState();
                 return;
             }
 
@@ -641,6 +691,7 @@
             args.path = remotePath;
             envScanStatus.textContent = 'Scanning remote path for .env files...';
             envScanStatus.style.color = theme.textColor;
+            refreshStartButtonState();
 
             requestPlugin('find_env_files', args, function (data) {
                 // Bail out if the user changed mode/path again while this request was in flight.
@@ -650,11 +701,13 @@
                 if (!data || !data.status) {
                     envScanStatus.textContent = (data && (data.message || data.msg)) || 'Failed to scan for .env files.';
                     envScanStatus.style.color = '#ed4014';
+                    refreshStartButtonState();
                     return;
                 }
                 if (!list.length) {
                     envScanStatus.textContent = 'No .env file found under the remote source path.';
                     envScanStatus.style.color = '#ed4014';
+                    refreshStartButtonState();
                     return;
                 }
                 if (list.length === 1) {
@@ -669,20 +722,26 @@
                     }).join('');
                     envSelect.style.display = '';
                 }
+                refreshStartButtonState();
             });
         }
 
+        envSelect.addEventListener('change', refreshStartButtonState);
+
         updateRemotePathVisibility();
+        refreshStartButtonState();
 
         filesToggle.addEventListener('change', function () {
             filesSection.style.display = this.checked ? '' : 'none';
             updateRemotePathVisibility();
+            refreshStartButtonState();
         });
 
         dbToggle.addEventListener('change', function () {
             dbSection.style.display = this.checked ? '' : 'none';
             updateRemotePathVisibility();
             if (this.checked) scanEnvFiles();
+            refreshStartButtonState();
         });
 
         dbSourceMode.addEventListener('change', function () {
@@ -694,6 +753,7 @@
             else dbManualGroup.style.display = '';
             updateRemotePathVisibility();
             if (this.value === 'env') scanEnvFiles();
+            refreshStartButtonState();
         });
 
         // Suggest a wp-config.php path alongside the remote source dir once
@@ -707,7 +767,12 @@
             }
             clearTimeout(envScanTimer);
             envScanTimer = setTimeout(scanEnvFiles, 700);
+            refreshStartButtonState();
         });
+
+        dbWpConfigPath.addEventListener('input', refreshStartButtonState);
+        dbName.addEventListener('input', refreshStartButtonState);
+        dbUser.addEventListener('input', refreshStartButtonState);
 
         ourPane.querySelectorAll('[data-fill]').forEach(function (chip) {
             chip.addEventListener('click', function () {
@@ -716,6 +781,7 @@
                 if (current === '/' || current.indexOf(path) !== 0) remoteDirInput.value = path;
                 clearTimeout(envScanTimer);
                 envScanTimer = setTimeout(scanEnvFiles, 200);
+                refreshStartButtonState();
             });
         });
 
@@ -930,31 +996,35 @@
         }
 
         startBtn.addEventListener('click', function () {
+            formStatus.textContent = '';
+
             if (!resolvedLocalDir) {
-                testStatus.textContent = 'Destination path is not resolved yet.';
-                testStatus.style.color = '#ed4014';
+                formStatus.textContent = 'Destination path is not resolved yet.';
+                formStatus.style.color = '#ed4014';
                 return;
             }
 
             var filesEnabled = filesToggle.checked;
             var dbEnabled = dbToggle.checked;
             if (!filesEnabled && !dbEnabled) {
-                testStatus.textContent = 'Select at least one of Files or Database to migrate.';
-                testStatus.style.color = '#ed4014';
+                formStatus.textContent = 'Select at least one of Files or Database to migrate.';
+                formStatus.style.color = '#ed4014';
                 return;
             }
 
             var envModeSelected = dbEnabled && dbSourceMode.value === 'env';
             var remoteDir = remoteDirInput.value.trim();
             if ((filesEnabled || envModeSelected) && !remoteDir) {
+                formStatus.textContent = 'Remote source path is required.';
+                formStatus.style.color = '#ed4014';
                 remoteDirInput.focus();
                 return;
             }
 
             var res = gatherSshArgs();
             if (res.error) {
-                testStatus.textContent = res.error;
-                testStatus.style.color = '#ed4014';
+                formStatus.textContent = res.error;
+                formStatus.style.color = '#ed4014';
                 return;
             }
             var args = res.args;
@@ -979,14 +1049,19 @@
                 args.db_source_mode = mode;
                 if (mode === 'wp_config') {
                     var wpPath = dbWpConfigPath.value.trim();
-                    if (!wpPath) { dbWpConfigPath.focus(); return; }
+                    if (!wpPath) {
+                        formStatus.textContent = 'Remote wp-config.php path is required.';
+                        formStatus.style.color = '#ed4014';
+                        dbWpConfigPath.focus();
+                        return;
+                    }
                     args.db_wp_config_path = wpPath;
                     summary.push('the database (credentials from wp-config.php)');
                 } else if (mode === 'env') {
                     var envPath = envSelect.value ? envSelect.value.trim() : '';
                     if (!envPath) {
-                        testStatus.textContent = 'No .env file detected under the remote source path yet. Wait for the scan to finish, or choose another credentials source.';
-                        testStatus.style.color = '#ed4014';
+                        formStatus.textContent = 'No .env file detected under the remote source path yet. Wait for the scan to finish, or choose another credentials source.';
+                        formStatus.style.color = '#ed4014';
                         return;
                     }
                     args.db_env_path = envPath;
@@ -995,8 +1070,8 @@
                     var manualName = dbName.value.trim();
                     var manualUser = dbUser.value.trim();
                     if (!manualName || !manualUser) {
-                        testStatus.textContent = 'Database name and username are required for manual mode.';
-                        testStatus.style.color = '#ed4014';
+                        formStatus.textContent = 'Database name and username are required for manual mode.';
+                        formStatus.style.color = '#ed4014';
                         return;
                     }
                     args.db_host = dbHost.value.trim() || '127.0.0.1';
@@ -1016,10 +1091,10 @@
 
             startBtn.disabled = true;
             requestPlugin('start_copy', args, function (data) {
-                startBtn.disabled = false;
                 if (!data || !data.status) {
-                    testStatus.textContent = (data && (data.message || data.msg)) || 'Failed to start migration.';
-                    testStatus.style.color = '#ed4014';
+                    refreshStartButtonState();
+                    formStatus.textContent = (data && (data.message || data.msg)) || 'Failed to start migration.';
+                    formStatus.style.color = '#ed4014';
                     return;
                 }
                 activeTaskId = data.data.task_id;
@@ -1055,6 +1130,8 @@
             transferPanel.style.display = 'none';
             form.style.display = '';
             activeTaskId = null;
+            formStatus.textContent = '';
+            refreshStartButtonState();
         });
 
         historyBtn.addEventListener('click', function () {
