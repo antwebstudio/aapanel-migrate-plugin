@@ -623,6 +623,14 @@
                         </label>
                         <span style="font-size: 12.5px; color: var(--text-secondary);">Overwrite existing</span>
                     </div>
+
+                    <div class="ssh-toggle-container" style="flex: 1;">
+                        <label class="ssh-switch">
+                            <input type="checkbox" id="auto-delete-symlinks">
+                            <span class="ssh-slider"></span>
+                        </label>
+                        <span style="font-size: 12.5px; color: var(--text-secondary);">Auto-delete broken symlinks</span>
+                    </div>
                 </div>
 
                 </div> <!-- End Scrollable Fields -->
@@ -871,6 +879,7 @@
                         <strong>&#9888; PHP symlink() function is disabled</strong>
                         <div id="symlink-reminder-body" style="margin-top: 6px; opacity: 0.9;"></div>
                     </div>
+                    <div id="symlink-autodelete-status" style="font-size: 11.5px; margin-bottom: 10px;"></div>
                     <div id="broken-links-box" style="display: none;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <label class="ssh-label" style="margin: 0;">Broken Symlinks Found In Migrated Folder</label>
@@ -1484,6 +1493,7 @@
                 exclude_folders: $('#exclude-folders').val().trim(),
                 sync_mode: $('#sync-mode').is(':checked') ? 1 : 0,
                 overwrite: $('#overwrite').is(':checked') ? 1 : 0,
+                auto_delete_symlinks: $('#auto-delete-symlinks').is(':checked') ? 1 : 0,
                 db_migrate: 0
             };
 
@@ -1650,6 +1660,7 @@
             $('#laravel-body').html('');
             $('#symlink-reminder').hide();
             $('#symlink-reminder-body').html('');
+            $('#symlink-autodelete-status').text('');
             $('#broken-links-box').hide();
             $('#broken-links-list').html('');
         },
@@ -1706,6 +1717,19 @@
                 $('#symlink-reminder').show();
             } else {
                 $('#symlink-reminder').hide();
+            }
+
+            var autodelete_el = $('#symlink-autodelete-status');
+            if (rdata.auto_delete_symlinks) {
+                var deletedList = rdata.symlinks_deleted || [];
+                var deleteErrors = rdata.symlink_delete_errors || [];
+                var summary = deletedList.length ? ('Auto-deleted ' + deletedList.length + ' broken symlink(s).') : 'No broken symlinks found to auto-delete.';
+                if (deleteErrors.length) {
+                    summary += ' ' + deleteErrors.length + ' could not be deleted -- see below.';
+                }
+                autodelete_el.text(summary).css('color', deleteErrors.length ? 'var(--accent-danger)' : 'var(--accent-success)');
+            } else {
+                autodelete_el.text('');
             }
 
             var broken = rdata.broken_symlinks || [];

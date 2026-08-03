@@ -220,6 +220,9 @@ class bt_main {
         $broken_symlinks = [];
         $php_symlink_issues = [];
         $laravel = null;
+        $auto_delete_symlinks = false;
+        $symlinks_deleted = [];
+        $symlink_delete_errors = [];
 
         if (file_exists($status_file)) {
             $data = json_decode(file_get_contents($status_file), true);
@@ -234,6 +237,9 @@ class bt_main {
                 $broken_symlinks = isset($data['broken_symlinks']) ? $data['broken_symlinks'] : [];
                 $php_symlink_issues = isset($data['php_symlink_issues']) ? $data['php_symlink_issues'] : [];
                 $laravel = isset($data['laravel']) ? $data['laravel'] : null;
+                $auto_delete_symlinks = isset($data['auto_delete_symlinks']) ? $data['auto_delete_symlinks'] : false;
+                $symlinks_deleted = isset($data['symlinks_deleted']) ? $data['symlinks_deleted'] : [];
+                $symlink_delete_errors = isset($data['symlink_delete_errors']) ? $data['symlink_delete_errors'] : [];
             }
         }
         
@@ -281,7 +287,10 @@ class bt_main {
             "chown_error" => $chown_error,
             "broken_symlinks" => $broken_symlinks,
             "php_symlink_issues" => $php_symlink_issues,
-            "laravel" => $laravel
+            "laravel" => $laravel,
+            "auto_delete_symlinks" => $auto_delete_symlinks,
+            "symlinks_deleted" => $symlinks_deleted,
+            "symlink_delete_errors" => $symlink_delete_errors
         ];
     }
 

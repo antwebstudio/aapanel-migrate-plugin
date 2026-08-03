@@ -262,6 +262,7 @@
             '<div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-sync-mode"> Sync Mode (delete local extras)</label>' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-overwrite" checked> Overwrite existing</label>' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-auto-delete-symlinks"> Auto-delete broken symlinks</label>' +
             '</div>' +
             '</div>' +
 
@@ -340,6 +341,7 @@
             '<strong>&#9888; PHP symlink() function is disabled</strong>' +
             '<div class="mig-symlink-reminder-body" style="margin-top:6px;opacity:0.9;"></div>' +
             '</div>' +
+            '<div class="mig-symlink-autodelete-status" style="font-size:11.5px;margin-bottom:10px;"></div>' +
             '<div class="mig-broken-links-box" style="display:none;">' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
             '<label style="font-size:12px;font-weight:600;">Broken Symlinks Found In Migrated Folder</label>' +
@@ -470,6 +472,7 @@
         var excludeInput = ourPane.querySelector('.mig-exclude');
         var syncMode = ourPane.querySelector('.mig-sync-mode');
         var overwrite = ourPane.querySelector('.mig-overwrite');
+        var autoDeleteSymlinks = ourPane.querySelector('.mig-auto-delete-symlinks');
         var dbSourceMode = ourPane.querySelector('.mig-db-source-mode');
         var dbWpConfigGroup = ourPane.querySelector('.mig-db-wpconfig-group');
         var dbWpConfigPath = ourPane.querySelector('.mig-db-wpconfig-path');
@@ -502,6 +505,7 @@
         var laravelBody = ourPane.querySelector('.mig-laravel-body');
         var symlinkReminderBox = ourPane.querySelector('.mig-symlink-reminder');
         var symlinkReminderBody = ourPane.querySelector('.mig-symlink-reminder-body');
+        var symlinkAutoDeleteStatus = ourPane.querySelector('.mig-symlink-autodelete-status');
         var brokenLinksBox = ourPane.querySelector('.mig-broken-links-box');
         var brokenLinksList = ourPane.querySelector('.mig-broken-links-list');
         var deleteSymlinksBtn = ourPane.querySelector('.mig-delete-symlinks-btn');
@@ -876,6 +880,7 @@
             laravelBody.innerHTML = '';
             symlinkReminderBox.style.display = 'none';
             symlinkReminderBody.innerHTML = '';
+            symlinkAutoDeleteStatus.textContent = '';
             brokenLinksBox.style.display = 'none';
             brokenLinksList.innerHTML = '';
         }
@@ -951,6 +956,19 @@
                 });
             } else {
                 symlinkReminderBox.style.display = 'none';
+            }
+
+            if (data.auto_delete_symlinks) {
+                var deletedList = data.symlinks_deleted || [];
+                var deleteErrors = data.symlink_delete_errors || [];
+                var summary = deletedList.length ? ('Auto-deleted ' + deletedList.length + ' broken symlink(s).') : 'No broken symlinks found to auto-delete.';
+                if (deleteErrors.length) {
+                    summary += ' ' + deleteErrors.length + ' could not be deleted -- see below.';
+                }
+                symlinkAutoDeleteStatus.textContent = summary;
+                symlinkAutoDeleteStatus.style.color = deleteErrors.length ? '#ef4444' : '#10b981';
+            } else {
+                symlinkAutoDeleteStatus.textContent = '';
             }
 
             var broken = data.broken_symlinks || [];
@@ -1071,6 +1089,7 @@
                 args.exclude_folders = excludeInput.value.trim();
                 args.sync_mode = syncMode.checked ? 1 : 0;
                 args.overwrite = overwrite.checked ? 1 : 0;
+                args.auto_delete_symlinks = autoDeleteSymlinks.checked ? 1 : 0;
                 summary.push('files into ' + resolvedLocalDir);
             } else {
                 // No files requested -- tells the backend to skip the rsync

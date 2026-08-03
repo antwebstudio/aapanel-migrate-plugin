@@ -1067,24 +1067,56 @@ def run_copy(config):
                 site_name = get_site_name_by_path(local_dir)
                 php_version = get_site_php_version(site_name) if site_name else None
 
-                laravel_info = {"detected": False}
-                artisan_dir = find_artisan_dir(local_dir)
-                if artisan_dir:
-                    log_out.write(f"Detected Laravel application (artisan found at {artisan_dir}).\n")
-                    laravel_info = {"detected": True, "artisan_dir": artisan_dir, "php_version": php_version, "commands": []}
-                    if not php_version:
-                        log_out.write("Warning: could not determine the website's configured PHP version; skipping artisan commands.\n")
-                        laravel_info["error"] = "Could not determine the website's configured PHP version."
-                    else:
-                        php_bin = get_php_binary(php_version)
-                        if not php_bin:
-                            log_out.write(f"Warning: PHP {php_version} binary not found; skipping artisan commands.\n")
-                            laravel_info["error"] = f"PHP {php_version} binary not found."
+                auto_delete_symlinks_cfg = config.get("auto_delete_symlinks")
+                auto_delete_symlinks = bool(auto_delete_symlinks_cfg) and str(auto_delete_symlinks_cfg) in ("1", "True", "true")
+
+                def run_laravel_commands():
+                    info = {"detected": False}
+                    artisan_dir = find_artisan_dir(local_dir)
+                    if artisan_dir:
+                        log_out.write(f"Detected Laravel application (artisan found at {artisan_dir}).\n")
+                        info = {"detected": True, "artisan_dir": artisan_dir, "php_version": php_version, "commands": []}
+                        if not php_version:
+                            log_out.write("Warning: could not determine the website's configured PHP version; skipping artisan commands.\n")
+                            info["error"] = "Could not determine the website's configured PHP version."
                         else:
-                            log_out.write(f"Running Laravel maintenance commands using PHP {php_version} ({php_bin})...\n")
-                            log_out.flush()
-                            laravel_info["commands"] = run_artisan_commands(artisan_dir, php_bin, log_file)
+                            php_bin = get_php_binary(php_version)
+                            if not php_bin:
+                                log_out.write(f"Warning: PHP {php_version} binary not found; skipping artisan commands.\n")
+                                info["error"] = f"PHP {php_version} binary not found."
+                            else:
+                                log_out.write(f"Running Laravel maintenance commands using PHP {php_version} ({php_bin})...\n")
+                                log_out.flush()
+                                info["commands"] = run_artisan_commands(artisan_dir, php_bin, log_file)
+                        log_out.flush()
+                    return info
+
+                symlinks_deleted = []
+                symlink_delete_errors = []
+
+                log_out.write("Scanning for broken symlinks in the migrated folder...\n")
+                log_out.flush()
+                broken_symlinks = find_broken_symlinks(local_dir)
+                log_out.write(f"Found {len(broken_symlinks)} broken symlink(s).\n")
+
+                if auto_delete_symlinks:
+                    # Delete broken symlinks (and only then run artisan) so
+                    # Laravel's own maintenance commands -- storage:link in
+                    # particular -- run against an already-cleaned tree
+                    # instead of racing a symlink checklist the user hasn't
+                    # reviewed yet.
+                    if broken_symlinks:
+                        log_out.write(f"Auto-deleting {len(broken_symlinks)} broken symlink(s)...\n")
+                        log_out.flush()
+                        symlinks_deleted, symlink_delete_errors = delete_symlinks_in_dir(local_dir, broken_symlinks)
+                        log_out.write(f"Deleted {len(symlinks_deleted)} broken symlink(s).\n")
+                        for err in symlink_delete_errors:
+                            log_out.write(f"Warning: {err}\n")
+                        broken_symlinks = [p for p in broken_symlinks if p not in symlinks_deleted]
                     log_out.flush()
+                    laravel_info = run_laravel_commands()
+                else:
+                    laravel_info = run_laravel_commands()
 
                 log_out.write("Setting ownership of migrated files to www:www...\n")
                 log_out.flush()
@@ -1093,11 +1125,6 @@ def run_copy(config):
                     log_out.write("Ownership set to www:www successfully.\n")
                 else:
                     log_out.write(f"Warning: failed to set ownership to www:www: {chown_err}\n")
-
-                log_out.write("Scanning for broken symlinks in the migrated folder...\n")
-                log_out.flush()
-                broken_symlinks = find_broken_symlinks(local_dir)
-                log_out.write(f"Found {len(broken_symlinks)} broken symlink(s).\n")
 
                 php_symlink_issues = get_php_symlink_issues(local_dir, php_version)
                 if php_symlink_issues:
@@ -1110,6 +1137,9 @@ def run_copy(config):
                     "chown_error": chown_err,
                     "broken_symlinks": broken_symlinks,
                     "php_symlink_issues": php_symlink_issues,
+                    "auto_delete_symlinks": auto_delete_symlinks,
+                    "symlinks_deleted": symlinks_deleted,
+                    "symlink_delete_errors": symlink_delete_errors,
                     "laravel": laravel_info
                 })
                 print_result(True, "Copy Completed Successfully!")
@@ -1126,22 +1156,7 @@ def run_copy(config):
             lf.write(f"\nCritical Exception: {str(e)}\n")
         print_result(False, f"Error: {str(e)}")
 
-def delete_broken_symlinks(config):
-    local_dir = config.get("local_dir", "")
-    paths = config.get("paths", [])
-    if isinstance(paths, str):
-        try:
-            paths = json.loads(paths)
-        except Exception:
-            paths = [p.strip() for p in paths.split(",") if p.strip()]
-
-    if not local_dir or not os.path.isdir(local_dir):
-        print_result(False, "Invalid or missing local directory.")
-        return
-    if not paths:
-        print_result(False, "No symlink paths were specified.")
-        return
-
+def delete_symlinks_in_dir(local_dir, paths):
     base = os.path.normpath(local_dir)
     deleted = []
     errors = []
@@ -1161,7 +1176,25 @@ def delete_broken_symlinks(config):
             deleted.append(rel)
         except Exception as e:
             errors.append(f"{rel}: {str(e)}")
+    return deleted, errors
 
+def delete_broken_symlinks(config):
+    local_dir = config.get("local_dir", "")
+    paths = config.get("paths", [])
+    if isinstance(paths, str):
+        try:
+            paths = json.loads(paths)
+        except Exception:
+            paths = [p.strip() for p in paths.split(",") if p.strip()]
+
+    if not local_dir or not os.path.isdir(local_dir):
+        print_result(False, "Invalid or missing local directory.")
+        return
+    if not paths:
+        print_result(False, "No symlink paths were specified.")
+        return
+
+    deleted, errors = delete_symlinks_in_dir(local_dir, paths)
     print_result(True, f"Deleted {len(deleted)} broken symlink(s).", {"deleted": deleted, "errors": errors})
 
 def fix_php_symlink(config):
