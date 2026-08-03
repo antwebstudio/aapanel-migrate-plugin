@@ -601,9 +601,9 @@
                     <label class="ssh-label">Exclude Folders</label>
                     <input type="text" class="ssh-input" id="exclude-folders" placeholder="e.g. .git, node_modules, vendor">
                     <div class="presets-container" id="exclude-chips">
-                        <span class="preset-chip active" data-val=".git" onclick="plugin_view.toggle_exclude(this)">.git</span>
-                        <span class="preset-chip active" data-val="node_modules" onclick="plugin_view.toggle_exclude(this)">node_modules</span>
-                        <span class="preset-chip active" data-val="vendor" onclick="plugin_view.toggle_exclude(this)">vendor</span>
+                        <span class="preset-chip" data-val=".git" onclick="plugin_view.toggle_exclude(this)">.git</span>
+                        <span class="preset-chip" data-val="node_modules" onclick="plugin_view.toggle_exclude(this)">node_modules</span>
+                        <span class="preset-chip" data-val="vendor" onclick="plugin_view.toggle_exclude(this)">vendor</span>
                     </div>
                 </div>
 
@@ -1938,10 +1938,9 @@
         }
     };
 
-    // Auto initialize dropdown nodes, websites, and exclusions
+    // Auto initialize dropdown nodes and websites
     plugin_view.load_nodes();
     plugin_view.load_websites();
-    $('#exclude-folders').val('.git, node_modules, vendor');
 
     // Debounced re-scan for .env files as the Database Migration tab's remote path is typed
     var db_env_scan_timer = null;

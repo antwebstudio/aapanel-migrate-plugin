@@ -182,7 +182,7 @@
         pane.style.position = 'relative';
 
         var excludeChips = DEFAULT_EXCLUDES.map(function (v) {
-            return chipHtml(v, 'data-val="' + v + '"', true);
+            return chipHtml(v, 'data-val="' + v + '"', false);
         }).join('');
 
         pane.innerHTML = '' +
@@ -233,7 +233,7 @@
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">What to migrate</label>' +
             '<div style="display:flex;gap:20px;flex-wrap:wrap;">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-files-toggle" checked> Files</label>' +
-            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-db-toggle"> Database</label>' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-db-toggle" checked> Database</label>' +
             '</div>' +
             '</div>' +
 
@@ -255,7 +255,7 @@
 
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Exclude Folders</label>' +
-            '<input type="text" class="mig-input mig-exclude" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" value="' + DEFAULT_EXCLUDES.join(', ') + '">' +
+            '<input type="text" class="mig-input mig-exclude" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" value="">' +
             '<div class="mig-exclude-chips" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' + excludeChips + '</div>' +
             '</div>' +
 
@@ -265,7 +265,7 @@
             '</div>' +
             '</div>' +
 
-            '<div class="mig-db-section" style="display:none;">' +
+            '<div class="mig-db-section">' +
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Database Credentials Source</label>' +
             '<select class="mig-select mig-db-source-mode" style="width:100%;height:32px;border-radius:6px;">' +
