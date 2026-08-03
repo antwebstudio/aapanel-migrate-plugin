@@ -219,6 +219,7 @@ class bt_main {
         $chown_error = "";
         $broken_symlinks = [];
         $php_symlink_issues = [];
+        $laravel = null;
 
         if (file_exists($status_file)) {
             $data = json_decode(file_get_contents($status_file), true);
@@ -232,6 +233,7 @@ class bt_main {
                 $chown_error = isset($data['chown_error']) ? $data['chown_error'] : "";
                 $broken_symlinks = isset($data['broken_symlinks']) ? $data['broken_symlinks'] : [];
                 $php_symlink_issues = isset($data['php_symlink_issues']) ? $data['php_symlink_issues'] : [];
+                $laravel = isset($data['laravel']) ? $data['laravel'] : null;
             }
         }
         
@@ -278,7 +280,8 @@ class bt_main {
             "chown_ok" => $chown_ok,
             "chown_error" => $chown_error,
             "broken_symlinks" => $broken_symlinks,
-            "php_symlink_issues" => $php_symlink_issues
+            "php_symlink_issues" => $php_symlink_issues,
+            "laravel" => $laravel
         ];
     }
 

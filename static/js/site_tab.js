@@ -332,6 +332,10 @@
             '<div class="mig-console" style="background:rgba(0,0,0,0.75);color:#fca5a5;border-radius:6px;padding:10px;height:220px;overflow-y:auto;font-family:Consolas,Monaco,monospace;font-size:11.5px;line-height:1.5;"></div>' +
             '<div class="mig-postmigrate" style="display:none;margin-top:14px;">' +
             '<div class="mig-chown-status" style="font-size:11.5px;margin-bottom:10px;"></div>' +
+            '<div class="mig-laravel-box" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.4);font-size:12px;">' +
+            '<strong>Laravel application detected</strong>' +
+            '<div class="mig-laravel-body" style="margin-top:6px;opacity:0.9;"></div>' +
+            '</div>' +
             '<div class="mig-symlink-reminder" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);font-size:12px;">' +
             '<strong>&#9888; PHP symlink() function is disabled</strong>' +
             '<div class="mig-symlink-reminder-body" style="margin-top:6px;opacity:0.9;"></div>' +
@@ -494,6 +498,8 @@
         var closePanelBtn = ourPane.querySelector('.mig-close-panel-btn');
         var postMigrateBox = ourPane.querySelector('.mig-postmigrate');
         var chownStatusEl = ourPane.querySelector('.mig-chown-status');
+        var laravelBox = ourPane.querySelector('.mig-laravel-box');
+        var laravelBody = ourPane.querySelector('.mig-laravel-body');
         var symlinkReminderBox = ourPane.querySelector('.mig-symlink-reminder');
         var symlinkReminderBody = ourPane.querySelector('.mig-symlink-reminder-body');
         var brokenLinksBox = ourPane.querySelector('.mig-broken-links-box');
@@ -860,6 +866,8 @@
         function resetPostMigrateBox() {
             postMigrateBox.style.display = 'none';
             chownStatusEl.textContent = '';
+            laravelBox.style.display = 'none';
+            laravelBody.innerHTML = '';
             symlinkReminderBox.style.display = 'none';
             symlinkReminderBody.innerHTML = '';
             brokenLinksBox.style.display = 'none';
@@ -881,6 +889,27 @@
                 chownStatusEl.style.color = '#10b981';
             } else {
                 chownStatusEl.textContent = '';
+            }
+
+            var laravel = data.laravel;
+            if (laravel && laravel.detected) {
+                laravelBox.style.display = '';
+                var lhtml = 'Found <code>artisan</code> at <code>' + escapeHtml(laravel.artisan_dir) + '</code>.';
+                if (laravel.error) {
+                    lhtml += '<div style="margin-top:6px;color:#ef4444;">' + escapeHtml(laravel.error) + ' Maintenance commands were skipped.</div>';
+                } else if (laravel.commands && laravel.commands.length) {
+                    lhtml += '<div style="margin-top:6px;">Ran maintenance commands using PHP ' + escapeHtml(laravel.php_version) + ':</div>';
+                    lhtml += '<ul style="margin:6px 0 0;padding-left:18px;">';
+                    laravel.commands.forEach(function (c) {
+                        var color = c.ok ? '#10b981' : '#ef4444';
+                        lhtml += '<li style="margin-bottom:4px;"><code>php artisan ' + escapeHtml(c.command) + '</code> -- ' +
+                            '<span style="color:' + color + ';font-weight:600;">' + (c.ok ? 'OK' : 'FAILED') + '</span></li>';
+                    });
+                    lhtml += '</ul>';
+                }
+                laravelBody.innerHTML = lhtml;
+            } else {
+                laravelBox.style.display = 'none';
             }
 
             var issues = data.php_symlink_issues || [];

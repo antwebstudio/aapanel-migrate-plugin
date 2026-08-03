@@ -668,15 +668,55 @@ def find_php_versions_with_symlink_disabled():
                     result.append({"version": version})
     return result
 
-def get_php_symlink_issues(local_dir):
-    site_name = get_site_name_by_path(local_dir)
-    if site_name:
-        version = get_site_php_version(site_name)
-        if version:
-            ini_path = "/www/server/php/{0}/etc/php.ini".format(version)
-            disabled, _ = check_disable_functions(ini_path)
-            return [{"version": version}] if disabled else []
+def get_php_symlink_issues(local_dir, php_version=None):
+    if php_version is None:
+        site_name = get_site_name_by_path(local_dir)
+        php_version = get_site_php_version(site_name) if site_name else None
+    if php_version:
+        ini_path = "/www/server/php/{0}/etc/php.ini".format(php_version)
+        disabled, _ = check_disable_functions(ini_path)
+        return [{"version": php_version}] if disabled else []
     return find_php_versions_with_symlink_disabled()
+
+def find_artisan_dir(base_dir):
+    # Laravel's "artisan" CLI entrypoint lives at the application root,
+    # alongside .env -- check there first, then a shallow scan in case the
+    # app was deployed inside a nested subfolder (e.g. a repo-name folder).
+    direct = os.path.join(base_dir, "artisan")
+    if os.path.isfile(direct):
+        return base_dir
+    for root, dirs, files in os.walk(base_dir):
+        depth = root[len(base_dir):].count(os.sep)
+        if depth >= 2:
+            dirs[:] = []
+            continue
+        if "artisan" in files:
+            return root
+    return None
+
+def get_php_binary(php_version):
+    path = "/www/server/php/{0}/bin/php".format(php_version)
+    return path if os.path.exists(path) else None
+
+def run_artisan_commands(artisan_dir, php_bin, log_file):
+    commands = ["config:cache", "storage:link", "cache:clear", "up"]
+    results = []
+    for cmd in commands:
+        try:
+            p = subprocess.Popen([php_bin, "artisan", cmd], cwd=artisan_dir,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            out, _ = p.communicate(timeout=120)
+            ok = p.returncode == 0
+        except Exception as e:
+            out = str(e)
+            ok = False
+        output = out.strip()[:2000]
+        results.append({"command": cmd, "ok": ok, "output": output})
+        with open(log_file, "a") as lf:
+            lf.write("php artisan {0}: {1}\n".format(cmd, "OK" if ok else "FAILED"))
+            if output:
+                lf.write(output + "\n")
+    return results
 
 def migrate_database(config, log_file, update_status):
     db_migrate = config.get("db_migrate")
@@ -1024,6 +1064,28 @@ def run_copy(config):
             if p.returncode == 0:
                 log_out.write(f"\nCopy task completed successfully at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
+                site_name = get_site_name_by_path(local_dir)
+                php_version = get_site_php_version(site_name) if site_name else None
+
+                laravel_info = {"detected": False}
+                artisan_dir = find_artisan_dir(local_dir)
+                if artisan_dir:
+                    log_out.write(f"Detected Laravel application (artisan found at {artisan_dir}).\n")
+                    laravel_info = {"detected": True, "artisan_dir": artisan_dir, "php_version": php_version, "commands": []}
+                    if not php_version:
+                        log_out.write("Warning: could not determine the website's configured PHP version; skipping artisan commands.\n")
+                        laravel_info["error"] = "Could not determine the website's configured PHP version."
+                    else:
+                        php_bin = get_php_binary(php_version)
+                        if not php_bin:
+                            log_out.write(f"Warning: PHP {php_version} binary not found; skipping artisan commands.\n")
+                            laravel_info["error"] = f"PHP {php_version} binary not found."
+                        else:
+                            log_out.write(f"Running Laravel maintenance commands using PHP {php_version} ({php_bin})...\n")
+                            log_out.flush()
+                            laravel_info["commands"] = run_artisan_commands(artisan_dir, php_bin, log_file)
+                    log_out.flush()
+
                 log_out.write("Setting ownership of migrated files to www:www...\n")
                 log_out.flush()
                 chown_ok, chown_err = chown_migrated_folder(local_dir)
@@ -1037,7 +1099,7 @@ def run_copy(config):
                 broken_symlinks = find_broken_symlinks(local_dir)
                 log_out.write(f"Found {len(broken_symlinks)} broken symlink(s).\n")
 
-                php_symlink_issues = get_php_symlink_issues(local_dir)
+                php_symlink_issues = get_php_symlink_issues(local_dir, php_version)
                 if php_symlink_issues:
                     versions = ", ".join(i["version"] for i in php_symlink_issues)
                     log_out.write(f"PHP symlink() function is disabled for PHP version(s): {versions}\n")
@@ -1047,7 +1109,8 @@ def run_copy(config):
                     "chown_ok": chown_ok,
                     "chown_error": chown_err,
                     "broken_symlinks": broken_symlinks,
-                    "php_symlink_issues": php_symlink_issues
+                    "php_symlink_issues": php_symlink_issues,
+                    "laravel": laravel_info
                 })
                 print_result(True, "Copy Completed Successfully!")
             else:

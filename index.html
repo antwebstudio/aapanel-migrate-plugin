@@ -863,6 +863,10 @@
 
                 <div id="post-migrate-box" style="display: none; margin-bottom: 12px;">
                     <div id="chown-status" style="font-size: 11.5px; margin-bottom: 10px;"></div>
+                    <div id="laravel-box" style="display: none; margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.4); font-size: 12px; color: var(--text-primary);">
+                        <strong>Laravel application detected</strong>
+                        <div id="laravel-body" style="margin-top: 6px; opacity: 0.9;"></div>
+                    </div>
                     <div id="symlink-reminder" style="display: none; margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4); font-size: 12px; color: var(--text-primary);">
                         <strong>&#9888; PHP symlink() function is disabled</strong>
                         <div id="symlink-reminder-body" style="margin-top: 6px; opacity: 0.9;"></div>
@@ -1636,17 +1640,19 @@
             }, 1500);
         },
 
-        // Reset the post-migration checklist (ownership/symlink reminders) shown after a successful copy
+        // Reset the post-migration checklist (ownership/Laravel/symlink reminders) shown after a successful copy
         reset_post_migrate_box: function() {
             $('#post-migrate-box').hide();
             $('#chown-status').text('');
+            $('#laravel-box').hide();
+            $('#laravel-body').html('');
             $('#symlink-reminder').hide();
             $('#symlink-reminder-body').html('');
             $('#broken-links-box').hide();
             $('#broken-links-list').html('');
         },
 
-        // Render ownership status, the PHP symlink() reminder, and the broken-symlinks checklist after a successful copy
+        // Render ownership status, Laravel artisan results, the PHP symlink() reminder, and the broken-symlinks checklist after a successful copy
         render_post_migrate: function(rdata) {
             $('#post-migrate-box').show();
 
@@ -1657,6 +1663,28 @@
                 chown_el.text('Ownership of all migrated folders and files set to www:www.').css('color', 'var(--accent-success)');
             } else {
                 chown_el.text('');
+            }
+
+            var laravel = rdata.laravel;
+            if (laravel && laravel.detected) {
+                var lhtml = 'Found <code>artisan</code> at <code>' + $('<div>').text(laravel.artisan_dir).html() + '</code>.';
+                if (laravel.error) {
+                    lhtml += '<div style="margin-top:6px;color:var(--accent-danger);">' + $('<div>').text(laravel.error).html() + ' Maintenance commands were skipped.</div>';
+                } else if (laravel.commands && laravel.commands.length) {
+                    lhtml += '<div style="margin-top:6px;">Ran maintenance commands using PHP ' + $('<div>').text(laravel.php_version).html() + ':</div>';
+                    lhtml += '<ul style="margin:6px 0 0;padding-left:18px;">';
+                    for (var li = 0; li < laravel.commands.length; li++) {
+                        var c = laravel.commands[li];
+                        var color = c.ok ? 'var(--accent-success)' : 'var(--accent-danger)';
+                        lhtml += '<li style="margin-bottom:4px;"><code>php artisan ' + $('<div>').text(c.command).html() + '</code> -- ' +
+                            '<span style="color:' + color + ';font-weight:600;">' + (c.ok ? 'OK' : 'FAILED') + '</span></li>';
+                    }
+                    lhtml += '</ul>';
+                }
+                $('#laravel-body').html(lhtml);
+                $('#laravel-box').show();
+            } else {
+                $('#laravel-box').hide();
             }
 
             var issues = rdata.php_symlink_issues || [];
