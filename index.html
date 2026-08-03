@@ -854,6 +854,21 @@
                     <div class="terminal-line system">Initialising secure SSH shell...</div>
                 </div>
 
+                <div id="post-migrate-box" style="display: none; margin-bottom: 12px;">
+                    <div id="chown-status" style="font-size: 11.5px; margin-bottom: 10px;"></div>
+                    <div id="symlink-reminder" style="display: none; margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4); font-size: 12px; color: var(--text-primary);">
+                        <strong>&#9888; PHP symlink() function is disabled</strong>
+                        <div id="symlink-reminder-body" style="margin-top: 6px; opacity: 0.9;"></div>
+                    </div>
+                    <div id="broken-links-box" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label class="ssh-label" style="margin: 0;">Broken Symlinks Found In Migrated Folder</label>
+                            <button type="button" class="ssh-btn ssh-btn-secondary" id="delete-symlinks-btn" style="font-size: 11px; padding: 4px 10px;" onclick="plugin_view.delete_selected_symlinks()">Delete Selected</button>
+                        </div>
+                        <div id="broken-links-list" style="max-height: 150px; overflow-y: auto; font-size: 11.5px; font-family: var(--font-mono); color: var(--text-secondary);"></div>
+                    </div>
+                </div>
+
                 <div style="display: flex; gap: 12px; justify-content: flex-end; flex-shrink: 0;">
                     <button class="ssh-btn ssh-btn-danger" id="cancel-task-btn" onclick="plugin_view.cancel_current_task()">
                         <i class="layui-icon layui-icon-close" style="margin-right: 6px;"></i> Abort Sync
@@ -926,6 +941,7 @@
     var plugin_view = {
         active_task_id: null,
         status_polling_timer: null,
+        active_local_dir: null,
 
         // Tab views navigation switcher
         switch_tab: function(tab_name, element) {
@@ -1187,7 +1203,8 @@
 
                     var task_info = rdata.data;
                     self.active_task_id = task_info.task_id;
-                    
+                    self.active_local_dir = null;
+
                     $('#transfer-panel').css('display', 'flex').hide().fadeIn(300);
 
                     $('#task-progress-bar').css('width', '0%');
@@ -1197,9 +1214,10 @@
                     $('#metric-status').text('Initializing...').css('color', 'var(--text-secondary)');
                     $('#task-status-badge').attr('class', 'status-badge running pulse-status').html('<i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING');
                     $('#terminal-console').html('<div class="terminal-line system">Secure DB migrator daemon initiated. Spawn ID: ' + task_info.pid + '</div>');
-                    
+
                     $('#cancel-task-btn').show();
                     $('#close-panel-btn').hide();
+                    self.reset_post_migrate_box();
 
                     self.start_status_polling();
                 });
@@ -1441,7 +1459,8 @@
 
                     var task_info = rdata.data;
                     self.active_task_id = task_info.task_id;
-                    
+                    self.active_local_dir = args.local_dir;
+
                     $('#transfer-panel').css('display', 'flex').hide().fadeIn(300);
 
                     $('#task-progress-bar').css('width', '0%');
@@ -1451,9 +1470,10 @@
                     $('#metric-status').text('Initializing...').css('color', 'var(--text-secondary)');
                     $('#task-status-badge').attr('class', 'status-badge running pulse-status').html('<i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING');
                     $('#terminal-console').html('<div class="terminal-line system">Secure background daemon initiated. Spawn ID: ' + task_info.pid + '</div>');
-                    
+
                     $('#cancel-task-btn').show();
                     $('#close-panel-btn').hide();
+                    self.reset_post_migrate_box();
 
                     self.start_status_polling();
                 });
@@ -1516,6 +1536,7 @@
                         $('#task-status-badge').attr('class', 'status-badge success').html('<i class="layui-icon layui-icon-ok"></i> SUCCESS');
                         $('#cancel-task-btn').hide();
                         $('#close-panel-btn').show();
+                        self.render_post_migrate(rdata);
                         layer.msg('Folder copy completed successfully!', { icon: 1 });
                     } else if (rdata.task_status === 'error') {
                         clearInterval(self.status_polling_timer);
@@ -1535,6 +1556,135 @@
                     }
                 });
             }, 1500);
+        },
+
+        // Reset the post-migration checklist (ownership/symlink reminders) shown after a successful copy
+        reset_post_migrate_box: function() {
+            $('#post-migrate-box').hide();
+            $('#chown-status').text('');
+            $('#symlink-reminder').hide();
+            $('#symlink-reminder-body').html('');
+            $('#broken-links-box').hide();
+            $('#broken-links-list').html('');
+        },
+
+        // Render ownership status, the PHP symlink() reminder, and the broken-symlinks checklist after a successful copy
+        render_post_migrate: function(rdata) {
+            $('#post-migrate-box').show();
+
+            var chown_el = $('#chown-status');
+            if (rdata.chown_ok === false) {
+                chown_el.text('Warning: failed to set ownership to www:www -- ' + (rdata.chown_error || 'unknown error')).css('color', 'var(--accent-danger)');
+            } else if (rdata.chown_ok === true) {
+                chown_el.text('Ownership of all migrated folders and files set to www:www.').css('color', 'var(--accent-success)');
+            } else {
+                chown_el.text('');
+            }
+
+            var issues = rdata.php_symlink_issues || [];
+            if (issues.length) {
+                var html = 'This site may rely on symlinks, but PHP\'s <code>symlink()</code> function is currently disabled on this server. ' +
+                    'Enable it so symlinks created by the migrated application work correctly:';
+                html += '<ul style="margin:8px 0 0;padding-left:18px;">';
+                for (var i = 0; i < issues.length; i++) {
+                    var version = issues[i].version;
+                    html += '<li style="margin-bottom:6px;">PHP ' + version + ' &mdash; ' +
+                        '<button type="button" class="ssh-btn ssh-btn-secondary fix-symlink-btn" data-version="' + version + '" ' +
+                        'style="font-size:11px;padding:3px 8px;" onclick="plugin_view.fix_php_symlink(\'' + version + '\', this)">Enable symlink()</button> ' +
+                        '<span class="fix-symlink-status" data-version="' + version + '" style="font-size:11px;"></span></li>';
+                }
+                html += '</ul>';
+                $('#symlink-reminder-body').html(html);
+                $('#symlink-reminder').show();
+            } else {
+                $('#symlink-reminder').hide();
+            }
+
+            var broken = rdata.broken_symlinks || [];
+            var list_el = $('#broken-links-list');
+            if (broken.length) {
+                var list_html = '';
+                for (var b = 0; b < broken.length; b++) {
+                    var rel = broken[b];
+                    var escaped = $('<div>').text(rel).html();
+                    list_html += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;">' +
+                        '<input type="checkbox" class="symlink-check" data-path="' + escaped + '" checked> ' +
+                        '<span style="word-break:break-all;">' + escaped + '</span></label>';
+                }
+                list_el.html(list_html);
+                $('#broken-links-box').show();
+            } else {
+                list_el.html('');
+                $('#broken-links-box').hide();
+            }
+        },
+
+        // Action: Enable PHP's symlink() function for a given PHP version and reload PHP-FPM
+        fix_php_symlink: function(version, btn_el) {
+            var status_el = $('.fix-symlink-status[data-version="' + version + '"]');
+            $(btn_el).prop('disabled', true);
+            status_el.text('Applying...').css('color', 'var(--text-secondary)');
+
+            request_plugin(g_plugin_name, 'fix_php_symlink', { version: version }, function(rdata) {
+                if (typeof rdata === 'string') {
+                    try { rdata = JSON.parse(rdata); } catch (e) { /* leave as string */ }
+                }
+                var msg = (rdata && (rdata.message || rdata.msg)) || 'Done.';
+                status_el.text(msg);
+                if (rdata && rdata.status) {
+                    status_el.css('color', 'var(--accent-success)');
+                    $(btn_el).hide();
+                } else {
+                    status_el.css('color', 'var(--accent-danger)');
+                    $(btn_el).prop('disabled', false);
+                }
+            });
+        },
+
+        // Action: Delete the checked broken symlinks from the migrated folder
+        delete_selected_symlinks: function() {
+            var self = this;
+            var paths = [];
+            $('#broken-links-list .symlink-check:checked').each(function() {
+                paths.push($(this).data('path').toString());
+            });
+
+            if (!paths.length) {
+                layer.msg('No broken symlinks selected.', { icon: 2 });
+                return;
+            }
+            if (!this.active_local_dir) {
+                layer.msg('Migrated folder path is unknown for this task.', { icon: 2 });
+                return;
+            }
+
+            layer.confirm('Delete ' + paths.length + ' broken symlink(s)? This cannot be undone.', { title: 'Delete Broken Symlinks', icon: 3 }, function(index) {
+                layer.close(index);
+                request_plugin(g_plugin_name, 'delete_symlinks', { local_dir: self.active_local_dir, paths: JSON.stringify(paths) }, function(rdata) {
+                    if (typeof rdata === 'string') {
+                        try { rdata = JSON.parse(rdata); } catch (e) { /* leave as string */ }
+                    }
+                    if (!rdata || !rdata.status) {
+                        layer.msg((rdata && (rdata.message || rdata.msg)) || 'Failed to delete symlinks.', { icon: 2 });
+                        return;
+                    }
+
+                    var deleted = (rdata.data && rdata.data.deleted) || [];
+                    for (var i = 0; i < deleted.length; i++) {
+                        $('#broken-links-list .symlink-check[data-path="' + deleted[i] + '"]').closest('label').remove();
+                    }
+                    if (!$('#broken-links-list .symlink-check').length) {
+                        $('#broken-links-box').hide();
+                    }
+
+                    var errors = (rdata.data && rdata.data.errors) || [];
+                    if (errors.length) {
+                        layer.msg('Some symlinks could not be deleted: ' + errors.join('; '), { icon: 2 });
+                    } else {
+                        layer.msg('Deleted ' + deleted.length + ' broken symlink(s).', { icon: 1 });
+                    }
+                });
+            });
         },
 
         // Action: Stop/Kill background transfers

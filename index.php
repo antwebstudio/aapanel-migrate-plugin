@@ -200,7 +200,11 @@ class bt_main {
         $eta = "";
         $task_status = "running";
         $error = "";
-        
+        $chown_ok = null;
+        $chown_error = "";
+        $broken_symlinks = [];
+        $php_symlink_issues = [];
+
         if (file_exists($status_file)) {
             $data = json_decode(file_get_contents($status_file), true);
             if ($data) {
@@ -209,6 +213,10 @@ class bt_main {
                 $eta = isset($data['eta']) ? $data['eta'] : "";
                 $task_status = isset($data['status']) ? $data['status'] : "running";
                 $error = isset($data['error']) ? $data['error'] : "";
+                $chown_ok = isset($data['chown_ok']) ? $data['chown_ok'] : null;
+                $chown_error = isset($data['chown_error']) ? $data['chown_error'] : "";
+                $broken_symlinks = isset($data['broken_symlinks']) ? $data['broken_symlinks'] : [];
+                $php_symlink_issues = isset($data['php_symlink_issues']) ? $data['php_symlink_issues'] : [];
             }
         }
         
@@ -251,8 +259,38 @@ class bt_main {
             "eta" => $eta,
             "task_status" => $task_status,
             "error" => $error,
-            "logs" => $logs
+            "logs" => $logs,
+            "chown_ok" => $chown_ok,
+            "chown_error" => $chown_error,
+            "broken_symlinks" => $broken_symlinks,
+            "php_symlink_issues" => $php_symlink_issues
         ];
+    }
+
+    // Delete broken symlinks left over inside a migrated folder
+    public function delete_symlinks() {
+        $params = _post();
+        if (empty($params['local_dir'])) {
+            return [
+                "status" => false,
+                "message" => "Local directory is required.",
+                "msg" => "Local directory is required."
+            ];
+        }
+        if (empty($params['paths'])) {
+            return [
+                "status" => false,
+                "message" => "No symlink paths were specified.",
+                "msg" => "No symlink paths were specified."
+            ];
+        }
+        return $this->run_helper("delete_symlinks", $params);
+    }
+
+    // Remove 'symlink' from a PHP version's disable_functions and reload PHP-FPM
+    public function fix_php_symlink() {
+        $params = _post();
+        return $this->run_helper("fix_php_symlink", $params);
     }
 
     // Cancel running copy background task

@@ -328,6 +328,21 @@
             '</div>' +
             '<label style="display:block;font-size:11px;opacity:0.6;margin-bottom:4px;">Console Log</label>' +
             '<div class="mig-console" style="background:rgba(0,0,0,0.75);color:#fca5a5;border-radius:6px;padding:10px;height:220px;overflow-y:auto;font-family:Consolas,Monaco,monospace;font-size:11.5px;line-height:1.5;"></div>' +
+            '<div class="mig-postmigrate" style="display:none;margin-top:14px;">' +
+            '<div class="mig-chown-status" style="font-size:11.5px;margin-bottom:10px;"></div>' +
+            '<div class="mig-symlink-reminder" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);font-size:12px;">' +
+            '<strong>&#9888; PHP symlink() function is disabled</strong>' +
+            '<div class="mig-symlink-reminder-body" style="margin-top:6px;opacity:0.9;"></div>' +
+            '</div>' +
+            '<div class="mig-broken-links-box" style="display:none;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+            '<label style="font-size:12px;font-weight:600;">Broken Symlinks Found In Migrated Folder</label>' +
+            '<button type="button" class="mig-btn mig-btn-secondary mig-delete-symlinks-btn" ' +
+            'style="font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;background:transparent;">Delete Selected</button>' +
+            '</div>' +
+            '<div class="mig-broken-links-list" style="max-height:150px;overflow-y:auto;font-size:11.5px;font-family:Consolas,Monaco,monospace;"></div>' +
+            '</div>' +
+            '</div>' +
             '</div>' +
             '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">' +
             '<button type="button" class="mig-btn mig-cancel-btn" style="padding:7px 16px;border:none;border-radius:6px;background:#ed4014;color:#fff;cursor:pointer;">Abort</button>' +
@@ -471,6 +486,13 @@
         var consoleEl = ourPane.querySelector('.mig-console');
         var cancelBtn = ourPane.querySelector('.mig-cancel-btn');
         var closePanelBtn = ourPane.querySelector('.mig-close-panel-btn');
+        var postMigrateBox = ourPane.querySelector('.mig-postmigrate');
+        var chownStatusEl = ourPane.querySelector('.mig-chown-status');
+        var symlinkReminderBox = ourPane.querySelector('.mig-symlink-reminder');
+        var symlinkReminderBody = ourPane.querySelector('.mig-symlink-reminder-body');
+        var brokenLinksBox = ourPane.querySelector('.mig-broken-links-box');
+        var brokenLinksList = ourPane.querySelector('.mig-broken-links-list');
+        var deleteSymlinksBtn = ourPane.querySelector('.mig-delete-symlinks-btn');
 
         var loaded = false;
         var resolvedLocalDir = null;
@@ -692,6 +714,114 @@
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         }
 
+        function resetPostMigrateBox() {
+            postMigrateBox.style.display = 'none';
+            chownStatusEl.textContent = '';
+            symlinkReminderBox.style.display = 'none';
+            symlinkReminderBody.innerHTML = '';
+            brokenLinksBox.style.display = 'none';
+            brokenLinksList.innerHTML = '';
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderPostMigrate(data) {
+            postMigrateBox.style.display = '';
+
+            if (data.chown_ok === false) {
+                chownStatusEl.textContent = 'Warning: failed to set ownership to www:www -- ' + (data.chown_error || 'unknown error');
+                chownStatusEl.style.color = '#ef4444';
+            } else if (data.chown_ok === true) {
+                chownStatusEl.textContent = 'Ownership of all migrated folders and files set to www:www.';
+                chownStatusEl.style.color = '#10b981';
+            } else {
+                chownStatusEl.textContent = '';
+            }
+
+            var issues = data.php_symlink_issues || [];
+            if (issues.length) {
+                symlinkReminderBox.style.display = '';
+                var html = 'This site may rely on symlinks, but PHP\'s <code>symlink()</code> function is currently disabled on this server. ' +
+                    'Enable it so symlinks created by the migrated application work correctly:';
+                html += '<ul style="margin:8px 0 0;padding-left:18px;">';
+                issues.forEach(function (issue) {
+                    html += '<li style="margin-bottom:6px;">PHP ' + escapeHtml(issue.version) + ' &mdash; ' +
+                        '<button type="button" class="mig-btn mig-btn-secondary mig-fix-symlink-btn" data-version="' + escapeHtml(issue.version) + '" ' +
+                        'style="font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;background:transparent;">Enable symlink()</button> ' +
+                        '<span class="mig-fix-symlink-status" data-version="' + escapeHtml(issue.version) + '" style="font-size:11px;"></span></li>';
+                });
+                html += '</ul>';
+                symlinkReminderBody.innerHTML = html;
+
+                symlinkReminderBody.querySelectorAll('.mig-fix-symlink-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var version = btn.getAttribute('data-version');
+                        var statusEl = symlinkReminderBody.querySelector('.mig-fix-symlink-status[data-version="' + version + '"]');
+                        btn.disabled = true;
+                        statusEl.textContent = 'Applying...';
+                        statusEl.style.color = theme.textColor;
+                        requestPlugin('fix_php_symlink', { version: version }, function (res) {
+                            var msg = (res && (res.message || res.msg)) || 'Done.';
+                            statusEl.textContent = msg;
+                            statusEl.style.color = (res && res.status) ? '#10b981' : '#ef4444';
+                            if (res && res.status) btn.style.display = 'none';
+                            else btn.disabled = false;
+                        });
+                    });
+                });
+            } else {
+                symlinkReminderBox.style.display = 'none';
+            }
+
+            var broken = data.broken_symlinks || [];
+            if (broken.length) {
+                brokenLinksBox.style.display = '';
+                var listHtml = '';
+                broken.forEach(function (relPath) {
+                    listHtml += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;">' +
+                        '<input type="checkbox" class="mig-symlink-check" data-path="' + escapeHtml(relPath) + '" checked> ' +
+                        '<span style="word-break:break-all;">' + escapeHtml(relPath) + '</span></label>';
+                });
+                brokenLinksList.innerHTML = listHtml;
+            } else {
+                brokenLinksBox.style.display = 'none';
+            }
+        }
+
+        deleteSymlinksBtn.addEventListener('click', function () {
+            var checks = brokenLinksList.querySelectorAll('.mig-symlink-check:checked');
+            var paths = [];
+            checks.forEach(function (c) { paths.push(c.getAttribute('data-path')); });
+            if (!paths.length) {
+                window.alert('No broken symlinks selected.');
+                return;
+            }
+            if (!window.confirm('Delete ' + paths.length + ' broken symlink(s)? This cannot be undone.')) return;
+
+            deleteSymlinksBtn.disabled = true;
+            requestPlugin('delete_symlinks', { local_dir: resolvedLocalDir, paths: JSON.stringify(paths) }, function (res) {
+                deleteSymlinksBtn.disabled = false;
+                if (!res || !res.status) {
+                    window.alert((res && (res.message || res.msg)) || 'Failed to delete symlinks.');
+                    return;
+                }
+                var deleted = (res.data && res.data.deleted) || [];
+                deleted.forEach(function (p) {
+                    var check = brokenLinksList.querySelector('.mig-symlink-check[data-path="' + p.replace(/"/g, '\\"') + '"]');
+                    var label = check && check.closest('label');
+                    if (label) label.remove();
+                });
+                if (!brokenLinksList.querySelectorAll('.mig-symlink-check').length) {
+                    brokenLinksBox.style.display = 'none';
+                }
+                if (res.data && res.data.errors && res.data.errors.length) {
+                    window.alert('Some symlinks could not be deleted:\n' + res.data.errors.join('\n'));
+                }
+            });
+        });
+
         function pollStatus() {
             stopPolling();
             pollTimer = setInterval(function () {
@@ -710,6 +840,7 @@
                         setStatusBadge('SUCCESS', 'rgba(16,185,129,0.15)', '#10b981');
                         cancelBtn.style.display = 'none';
                         closePanelBtn.style.display = '';
+                        renderPostMigrate(data);
                     } else if (data.task_status === 'error') {
                         stopPolling();
                         setStatusBadge('ERROR', 'rgba(239,68,68,0.15)', '#ef4444');
@@ -826,6 +957,7 @@
                 metricEta.textContent = '--:--:--';
                 setStatusBadge('RUNNING', 'rgba(245,158,11,0.15)', '#f59e0b');
                 consoleEl.innerHTML = '';
+                resetPostMigrateBox();
                 cancelBtn.style.display = '';
                 closePanelBtn.style.display = 'none';
                 pollStatus();
