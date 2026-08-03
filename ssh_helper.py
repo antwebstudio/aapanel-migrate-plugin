@@ -576,9 +576,29 @@ def chown_migrated_folder(local_dir):
     # aaPanel's nginx/php-fpm workers run as www:www; files pulled in via
     # rsync keep whatever uid/gid rsync ran as (usually root), so the site
     # can't read/write them until ownership is corrected.
+    #
+    # aaPanel protects each site's .user.ini with `chattr +i` (immutable) so
+    # the site's own PHP process can't tamper with its ini overrides --
+    # chown on it always fails with "Operation not permitted", so it's
+    # skipped explicitly (find -prune) instead of letting the recursive
+    # chown choke on it. Using subprocess.run (not check_call) also matters
+    # here: check_call never reads the piped stdout/stderr, so once enough
+    # per-file errors fill the OS pipe buffer the child blocks writing to
+    # it and the call hangs forever -- silently stalling the whole task
+    # (including ever reporting the Laravel artisan results that already
+    # ran before this step). run()/communicate() drain both pipes as the
+    # process runs, and the timeout guarantees this can't hang indefinitely
+    # even if something else unexpected goes wrong.
     try:
-        subprocess.check_call(["chown", "-R", "www:www", local_dir], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True, ""
+        proc = subprocess.run(
+            ["find", local_dir, "-name", ".user.ini", "-prune", "-o", "-exec", "chown", "www:www", "{}", "+"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=300
+        )
+        if proc.returncode == 0:
+            return True, ""
+        return False, (proc.stderr or "").strip() or f"chown exited with status {proc.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, "chown timed out after 300 seconds"
     except Exception as e:
         return False, str(e)
 
