@@ -699,14 +699,24 @@ def get_php_binary(php_version):
     return path if os.path.exists(path) else None
 
 def run_artisan_commands(artisan_dir, php_bin, log_file):
+    # Every command below always runs, even if an earlier one failed or
+    # timed out -- a broken config:cache shouldn't prevent storage:link,
+    # up, or cache:clear from still being attempted.
     commands = ["config:cache", "storage:link", "up", "cache:clear"]
     results = []
     for cmd in commands:
         try:
             p = subprocess.Popen([php_bin, "artisan", cmd], cwd=artisan_dir,
+                                  stdin=subprocess.DEVNULL,
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            out, _ = p.communicate(timeout=120)
-            ok = p.returncode == 0
+            try:
+                out, _ = p.communicate(timeout=120)
+                ok = p.returncode == 0
+            except subprocess.TimeoutExpired:
+                p.kill()
+                out, _ = p.communicate()
+                out = (out or "") + "\nCommand timed out after 120 seconds and was killed."
+                ok = False
         except Exception as e:
             out = str(e)
             ok = False
