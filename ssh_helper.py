@@ -699,7 +699,7 @@ def get_php_binary(php_version):
     return path if os.path.exists(path) else None
 
 def run_artisan_commands(artisan_dir, php_bin, log_file):
-    commands = ["config:cache", "storage:link", "cache:clear", "up"]
+    commands = ["config:cache", "storage:link", "up", "cache:clear"]
     results = []
     for cmd in commands:
         try:
