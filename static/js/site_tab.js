@@ -237,8 +237,7 @@
             '</div>' +
             '</div>' +
 
-            '<div class="mig-files-section">' +
-            '<div style="margin-bottom:14px;">' +
+            '<div class="mig-remote-path-section" style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote Source Path</label>' +
             '<input type="text" class="mig-input mig-remote-dir" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site">' +
             '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' +
@@ -248,6 +247,7 @@
             '</div>' +
             '</div>' +
 
+            '<div class="mig-files-section">' +
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Destination (this website)</label>' +
             '<div class="mig-dest-hint" style="font-family:Consolas,Monaco,monospace;font-size:12px;opacity:0.75;">Resolving website path...</div>' +
@@ -276,8 +276,9 @@
             '</div>' +
 
             '<div class="mig-db-env-group" style="margin-bottom:14px;">' +
-            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File Path</label>' +
-            '<input type="text" class="mig-input mig-db-env-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/.env">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File</label>' +
+            '<div class="mig-env-scan-status" style="font-size:12px;margin-bottom:6px;opacity:0.85;">Enter the remote source path above to search for a .env file.</div>' +
+            '<select class="mig-select mig-db-env-select" style="display:none;width:100%;height:32px;border-radius:6px;"></select>' +
             '</div>' +
 
             '<div class="mig-db-wpconfig-group" style="display:none;margin-bottom:14px;">' +
@@ -458,6 +459,7 @@
         var filesSection = ourPane.querySelector('.mig-files-section');
         var dbToggle = ourPane.querySelector('.mig-db-toggle');
         var dbSection = ourPane.querySelector('.mig-db-section');
+        var remotePathSection = ourPane.querySelector('.mig-remote-path-section');
         var remoteDirInput = ourPane.querySelector('.mig-remote-dir');
         var destHint = ourPane.querySelector('.mig-dest-hint');
         var excludeInput = ourPane.querySelector('.mig-exclude');
@@ -467,7 +469,8 @@
         var dbWpConfigGroup = ourPane.querySelector('.mig-db-wpconfig-group');
         var dbWpConfigPath = ourPane.querySelector('.mig-db-wpconfig-path');
         var dbEnvGroup = ourPane.querySelector('.mig-db-env-group');
-        var dbEnvPath = ourPane.querySelector('.mig-db-env-path');
+        var envScanStatus = ourPane.querySelector('.mig-env-scan-status');
+        var envSelect = ourPane.querySelector('.mig-db-env-select');
         var dbManualGroup = ourPane.querySelector('.mig-db-manual-group');
         var dbHost = ourPane.querySelector('.mig-db-host');
         var dbPort = ourPane.querySelector('.mig-db-port');
@@ -606,12 +609,80 @@
 
         refreshNodesBtn.addEventListener('click', loadNodes);
 
+        // The Remote Source Path field is shared by file transfer and by the
+        // .env auto-detector below -- show it whenever either one needs it,
+        // instead of tying its visibility to the Files toggle alone.
+        function updateRemotePathVisibility() {
+            var needed = filesToggle.checked || (dbToggle.checked && dbSourceMode.value === 'env');
+            remotePathSection.style.display = needed ? '' : 'none';
+        }
+
+        var envScanTimer = null;
+        function scanEnvFiles() {
+            if (!dbToggle.checked || dbSourceMode.value !== 'env') return;
+
+            var remotePath = remoteDirInput.value.trim();
+            envSelect.style.display = 'none';
+            envSelect.innerHTML = '';
+            if (!remotePath) {
+                envScanStatus.textContent = 'Enter the remote source path above to search for a .env file.';
+                envScanStatus.style.color = theme.textColor;
+                return;
+            }
+
+            var res = gatherSshArgs();
+            if (res.error) {
+                envScanStatus.textContent = res.error;
+                envScanStatus.style.color = '#ed4014';
+                return;
+            }
+
+            var args = res.args;
+            args.path = remotePath;
+            envScanStatus.textContent = 'Scanning remote path for .env files...';
+            envScanStatus.style.color = theme.textColor;
+
+            requestPlugin('find_env_files', args, function (data) {
+                // Bail out if the user changed mode/path again while this request was in flight.
+                if (!dbToggle.checked || dbSourceMode.value !== 'env' || remoteDirInput.value.trim() !== remotePath) return;
+
+                var list = (data && data.status && data.data) || [];
+                if (!data || !data.status) {
+                    envScanStatus.textContent = (data && (data.message || data.msg)) || 'Failed to scan for .env files.';
+                    envScanStatus.style.color = '#ed4014';
+                    return;
+                }
+                if (!list.length) {
+                    envScanStatus.textContent = 'No .env file found under the remote source path.';
+                    envScanStatus.style.color = '#ed4014';
+                    return;
+                }
+                if (list.length === 1) {
+                    envScanStatus.textContent = 'Detected .env file: ' + list[0];
+                    envScanStatus.style.color = '#10b981';
+                    envSelect.innerHTML = '<option value="' + list[0] + '">' + list[0] + '</option>';
+                } else {
+                    envScanStatus.textContent = 'Multiple .env files found -- select one:';
+                    envScanStatus.style.color = theme.textColor;
+                    envSelect.innerHTML = list.map(function (p) {
+                        return '<option value="' + p + '">' + p + '</option>';
+                    }).join('');
+                    envSelect.style.display = '';
+                }
+            });
+        }
+
+        updateRemotePathVisibility();
+
         filesToggle.addEventListener('change', function () {
             filesSection.style.display = this.checked ? '' : 'none';
+            updateRemotePathVisibility();
         });
 
         dbToggle.addEventListener('change', function () {
             dbSection.style.display = this.checked ? '' : 'none';
+            updateRemotePathVisibility();
+            if (this.checked) scanEnvFiles();
         });
 
         dbSourceMode.addEventListener('change', function () {
@@ -621,17 +692,21 @@
             if (this.value === 'wp_config') dbWpConfigGroup.style.display = '';
             else if (this.value === 'env') dbEnvGroup.style.display = '';
             else dbManualGroup.style.display = '';
+            updateRemotePathVisibility();
+            if (this.value === 'env') scanEnvFiles();
         });
 
-        // Suggest wp-config.php / .env paths alongside the remote source dir
-        // once the user starts typing it, without clobbering anything they
-        // already typed there themselves.
+        // Suggest a wp-config.php path alongside the remote source dir once
+        // the user starts typing it (without clobbering anything they
+        // already typed there themselves), and re-scan for .env files.
         remoteDirInput.addEventListener('input', function () {
             var dir = remoteDirInput.value.trim();
-            if (!dir) return;
-            var sep = (dir.charAt(dir.length - 1) === '/') ? '' : '/';
-            if (!dbWpConfigPath.value.trim()) dbWpConfigPath.value = dir + sep + 'wp-config.php';
-            if (!dbEnvPath.value.trim()) dbEnvPath.value = dir + sep + '.env';
+            if (dir) {
+                var sep = (dir.charAt(dir.length - 1) === '/') ? '' : '/';
+                if (!dbWpConfigPath.value.trim()) dbWpConfigPath.value = dir + sep + 'wp-config.php';
+            }
+            clearTimeout(envScanTimer);
+            envScanTimer = setTimeout(scanEnvFiles, 700);
         });
 
         ourPane.querySelectorAll('[data-fill]').forEach(function (chip) {
@@ -639,6 +714,8 @@
                 var path = chip.getAttribute('data-fill');
                 var current = remoteDirInput.value || '/';
                 if (current === '/' || current.indexOf(path) !== 0) remoteDirInput.value = path;
+                clearTimeout(envScanTimer);
+                envScanTimer = setTimeout(scanEnvFiles, 200);
             });
         });
 
@@ -867,13 +944,11 @@
                 return;
             }
 
-            var remoteDir = '';
-            if (filesEnabled) {
-                remoteDir = remoteDirInput.value.trim();
-                if (!remoteDir) {
-                    remoteDirInput.focus();
-                    return;
-                }
+            var envModeSelected = dbEnabled && dbSourceMode.value === 'env';
+            var remoteDir = remoteDirInput.value.trim();
+            if ((filesEnabled || envModeSelected) && !remoteDir) {
+                remoteDirInput.focus();
+                return;
             }
 
             var res = gatherSshArgs();
@@ -908,12 +983,11 @@
                     args.db_wp_config_path = wpPath;
                     summary.push('the database (credentials from wp-config.php)');
                 } else if (mode === 'env') {
-                    var envPath = dbEnvPath.value.trim();
-                    if (!envPath) { dbEnvPath.focus(); return; }
-                    if (!/\.env$/.test(envPath)) {
-                        var envSep = (envPath.charAt(envPath.length - 1) === '/') ? '' : '/';
-                        envPath = envPath + envSep + '.env';
-                        dbEnvPath.value = envPath;
+                    var envPath = envSelect.value ? envSelect.value.trim() : '';
+                    if (!envPath) {
+                        testStatus.textContent = 'No .env file detected under the remote source path yet. Wait for the scan to finish, or choose another credentials source.';
+                        testStatus.style.color = '#ed4014';
+                        return;
                     }
                     args.db_env_path = envPath;
                     summary.push('the database (credentials from .env)');

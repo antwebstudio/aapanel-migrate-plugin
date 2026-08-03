@@ -91,6 +91,21 @@ class bt_main {
         return $this->run_helper("list", $params);
     }
 
+    // Search a remote path for .env files so the UI can auto-detect (or let
+    // the user pick, if more than one is found) database credentials instead
+    // of requiring a manually typed .env path
+    public function find_env_files() {
+        $params = _post();
+        if (empty($params['path'])) {
+            return [
+                "status" => false,
+                "message" => "Remote path is required.",
+                "msg" => "Remote path is required."
+            ];
+        }
+        return $this->run_helper("find_env_files", $params);
+    }
+
     // Launch background file transfer using rsync in python helper
     public function start_copy() {
         $params = _post();

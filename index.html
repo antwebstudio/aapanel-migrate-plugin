@@ -717,9 +717,16 @@
 
                     <!-- Read from .env file path option -->
                     <div class="ssh-group" id="db-env-group">
-                        <label class="ssh-label">Remote .env File Path</label>
-                        <input type="text" class="ssh-input" id="db-env-path" placeholder="e.g. /www/wwwroot/my_site/.env">
-                        <p style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">Provide the absolute path to your site's `.env` file on the remote server.</p>
+                        <label class="ssh-label">Remote Source Path</label>
+                        <input type="text" class="ssh-input" id="db-remote-dir" placeholder="e.g. /www/wwwroot/my_site">
+                        <div class="presets-container">
+                            <span class="preset-chip" onclick="plugin_view.fill_db_remote('/www/wwwroot/')">/www/wwwroot/</span>
+                            <span class="preset-chip" onclick="plugin_view.fill_db_remote('/root/')">/root/</span>
+                            <span class="preset-chip" onclick="plugin_view.fill_db_remote('/home/')">/home/</span>
+                        </div>
+                        <p style="font-size: 11px; color: var(--text-secondary); margin: 10px 0 4px;">Remote .env File</p>
+                        <div id="db-env-scan-status" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">Enter the remote source path above to search for a .env file.</div>
+                        <select class="ssh-select" id="db-env-select" style="display: none;"></select>
                     </div>
 
                     <!-- Manual credentials option -->
@@ -997,16 +1004,91 @@
             if (current === '/' || !current.startsWith(path)) {
                 $('#remote-dir').val(path);
             }
-            this.update_db_env_path();
         },
 
-        update_db_env_path: function() {
-            var remote_dir = $('#remote-dir').val().trim();
-            if (remote_dir) {
-                var separator = (remote_dir.endsWith('/') || remote_dir.endsWith('\\')) ? '' : '/';
-                var env_path = remote_dir + separator + '.env';
-                $('#db-env-path').val(env_path);
+        fill_db_remote: function(path) {
+            var current = $('#db-remote-dir').val() || '/';
+            if (current === '/' || !current.startsWith(path)) {
+                $('#db-remote-dir').val(path);
             }
+            this.scan_db_env_files();
+        },
+
+        // Build the SSH args currently configured on the Database Migration tab
+        gather_db_ssh_args: function() {
+            var custom_active = $('#db-custom-ssh-toggle').is(':checked');
+            if (custom_active) {
+                var args = {
+                    host: $('#db-ssh-host').val().trim(),
+                    port: $('#db-ssh-port').val().trim(),
+                    username: $('#db-ssh-user').val().trim(),
+                    auth_type: $('#db-ssh-auth-type').val(),
+                    password: safe_b64encode($('#db-ssh-password').val().trim()),
+                    key: safe_b64encode($('#db-ssh-key').val().trim()),
+                    _b64: 1
+                };
+                if (!args.host) {
+                    return { error: 'Host IP is required for custom connection.' };
+                }
+                return { args: args };
+            }
+            var node_id = $('#db-ssh-node-select').val();
+            if (!node_id) {
+                return { error: 'Please select an SSH node target or configure custom parameters.' };
+            }
+            return { args: { node_id: node_id } };
+        },
+
+        // Search the remote source path (Database Migration tab) for .env files
+        scan_db_env_files: function() {
+            var status_el = $('#db-env-scan-status');
+            var select_el = $('#db-env-select');
+            select_el.hide().html('');
+
+            var remote_path = $('#db-remote-dir').val().trim();
+            if (!remote_path) {
+                status_el.text('Enter the remote source path above to search for a .env file.').css('color', 'var(--text-secondary)');
+                return;
+            }
+
+            var res = this.gather_db_ssh_args();
+            if (res.error) {
+                status_el.text(res.error).css('color', 'var(--accent-danger)');
+                return;
+            }
+
+            var args = res.args;
+            args.path = remote_path;
+            status_el.text('Scanning remote path for .env files...').css('color', 'var(--text-secondary)');
+
+            request_plugin(g_plugin_name, 'find_env_files', args, function(rdata) {
+                if (typeof rdata === 'string') {
+                    try { rdata = JSON.parse(rdata); } catch (e) { /* leave as string */ }
+                }
+                // Bail out if the user changed the path again while this request was in flight.
+                if ($('#db-remote-dir').val().trim() !== remote_path) return;
+
+                if (!rdata || !rdata.status) {
+                    status_el.text((rdata && (rdata.message || rdata.msg)) || 'Failed to scan for .env files.').css('color', 'var(--accent-danger)');
+                    return;
+                }
+                var list = rdata.data || [];
+                if (!list.length) {
+                    status_el.text('No .env file found under the remote source path.').css('color', 'var(--accent-danger)');
+                    return;
+                }
+                if (list.length === 1) {
+                    status_el.text('Detected .env file: ' + list[0]).css('color', 'var(--accent-success)');
+                    select_el.html('<option value="' + list[0] + '">' + list[0] + '</option>');
+                } else {
+                    status_el.text('Multiple .env files found -- select one:').css('color', 'var(--text-secondary)');
+                    var html = '';
+                    for (var i = 0; i < list.length; i++) {
+                        html += '<option value="' + list[i] + '">' + list[i] + '</option>';
+                    }
+                    select_el.html(html).show();
+                }
+            });
         },
 
         fill_local: function(path) {
@@ -1022,6 +1104,7 @@
             if (mode === 'env') {
                 $('#db-env-group').show();
                 $('#db-manual-group').hide();
+                this.scan_db_env_files();
             } else {
                 $('#db-env-group').hide();
                 $('#db-manual-group').show();
@@ -1153,15 +1236,10 @@
 
             args.db_source_mode = $('#db-source-mode').val();
             if (args.db_source_mode === 'env') {
-                var env_path = $('#db-env-path').val().trim();
+                var env_path = $('#db-env-select').val();
                 if (!env_path) {
-                    layer.msg('Remote .env file path is required!', { icon: 2 });
+                    layer.msg('No .env file detected under the remote source path yet. Wait for the scan to finish, or choose another credentials source.', { icon: 2 });
                     return;
-                }
-                if (!env_path.endsWith('.env')) {
-                    var separator = (env_path.endsWith('/') || env_path.endsWith('\\')) ? '' : '/';
-                    env_path = env_path + separator + '.env';
-                    $('#db-env-path').val(env_path);
                 }
                 args.db_env_path = env_path;
             } else {
@@ -1865,17 +1943,12 @@
     plugin_view.load_websites();
     $('#exclude-folders').val('.git, node_modules, vendor');
 
-    // Auto update DB env path when remote directory changes
-    $('#remote-dir').on('input', function() {
-        plugin_view.update_db_env_path();
-    });
-
-    // Auto-append .env if remote .env path is entered without it on blur
-    $('#db-env-path').on('blur', function() {
-        var val = $(this).val().trim();
-        if (val && !val.endsWith('.env')) {
-            var separator = (val.endsWith('/') || val.endsWith('\\')) ? '' : '/';
-            $(this).val(val + separator + '.env');
-        }
+    // Debounced re-scan for .env files as the Database Migration tab's remote path is typed
+    var db_env_scan_timer = null;
+    $('#db-remote-dir').on('input', function() {
+        clearTimeout(db_env_scan_timer);
+        db_env_scan_timer = setTimeout(function() {
+            if ($('#db-source-mode').val() === 'env') plugin_view.scan_db_env_files();
+        }, 700);
     });
 </script>

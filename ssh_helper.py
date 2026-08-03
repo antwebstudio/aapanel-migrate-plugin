@@ -324,6 +324,30 @@ def list_remote_dir_shell(host, port, username, auth_type, password, key_content
     except Exception as e:
         print_result(False, f"Failed to list directory: {str(e)}")
 
+def find_env_files(config):
+    node_id = config.get("node_id")
+    if node_id:
+        creds = load_node_credentials(node_id)
+        if not creds:
+            print_result(False, f"Node ID {node_id} not found.")
+            return
+        config.update(creds)
+
+    path = config.get("path", "").strip()
+    if not path:
+        print_result(False, "Remote path is required.")
+        return
+
+    escaped_path = path.replace("'", "'\\''")
+    cmd = f"find '{escaped_path}' -maxdepth 3 -iname '.env' -type f 2>/dev/null"
+    status, out, err = run_remote_ssh_command(config, cmd)
+    if not status:
+        print_result(False, f"Failed to scan for .env files: {err or 'unknown error'}")
+        return
+
+    files = sorted(set(line.strip() for line in out.splitlines() if line.strip()))
+    print_result(True, "Success", files)
+
 def get_local_mysql_root():
     # 1. Try /www/server/panel/data/mysql-root.pl
     root_pl_path = "/www/server/panel/data/mysql-root.pl"
@@ -1153,6 +1177,8 @@ if __name__ == "__main__":
         test_ssh(config)
     elif action == "list":
         list_remote_dir(config)
+    elif action == "find_env_files":
+        find_env_files(config)
     elif action == "copy":
         run_copy(config)
     elif action == "delete_symlinks":
