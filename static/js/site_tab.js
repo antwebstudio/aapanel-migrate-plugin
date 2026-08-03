@@ -182,7 +182,7 @@
         pane.style.position = 'relative';
 
         var excludeChips = DEFAULT_EXCLUDES.map(function (v) {
-            return chipHtml(v, 'data-val="' + v + '"', true);
+            return chipHtml(v, 'data-val="' + v + '"', false);
         }).join('');
 
         pane.innerHTML = '' +
@@ -233,12 +233,11 @@
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">What to migrate</label>' +
             '<div style="display:flex;gap:20px;flex-wrap:wrap;">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-files-toggle" checked> Files</label>' +
-            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-db-toggle"> Database</label>' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-db-toggle" checked> Database</label>' +
             '</div>' +
             '</div>' +
 
-            '<div class="mig-files-section">' +
-            '<div style="margin-bottom:14px;">' +
+            '<div class="mig-remote-path-section" style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote Source Path</label>' +
             '<input type="text" class="mig-input mig-remote-dir" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site">' +
             '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' +
@@ -248,6 +247,7 @@
             '</div>' +
             '</div>' +
 
+            '<div class="mig-files-section">' +
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Destination (this website)</label>' +
             '<div class="mig-dest-hint" style="font-family:Consolas,Monaco,monospace;font-size:12px;opacity:0.75;">Resolving website path...</div>' +
@@ -255,17 +255,18 @@
 
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Exclude Folders</label>' +
-            '<input type="text" class="mig-input mig-exclude" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" value="' + DEFAULT_EXCLUDES.join(', ') + '">' +
+            '<input type="text" class="mig-input mig-exclude" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" value="">' +
             '<div class="mig-exclude-chips" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' + excludeChips + '</div>' +
             '</div>' +
 
             '<div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-sync-mode"> Sync Mode (delete local extras)</label>' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-overwrite" checked> Overwrite existing</label>' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;"><input type="checkbox" class="mig-auto-delete-symlinks"> Auto-delete broken symlinks</label>' +
             '</div>' +
             '</div>' +
 
-            '<div class="mig-db-section" style="display:none;">' +
+            '<div class="mig-db-section">' +
             '<div style="margin-bottom:14px;">' +
             '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Database Credentials Source</label>' +
             '<select class="mig-select mig-db-source-mode" style="width:100%;height:32px;border-radius:6px;">' +
@@ -276,8 +277,9 @@
             '</div>' +
 
             '<div class="mig-db-env-group" style="margin-bottom:14px;">' +
-            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File Path</label>' +
-            '<input type="text" class="mig-input mig-db-env-path" style="width:100%;height:32px;box-sizing:border-box;border-radius:6px;padding:0 8px;" placeholder="/www/wwwroot/my_site/.env">' +
+            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;">Remote .env File</label>' +
+            '<div class="mig-env-scan-status" style="font-size:12px;margin-bottom:6px;opacity:0.85;">Enter the remote source path above to search for a .env file.</div>' +
+            '<select class="mig-select mig-db-env-select" style="display:none;width:100%;height:32px;border-radius:6px;"></select>' +
             '</div>' +
 
             '<div class="mig-db-wpconfig-group" style="display:none;margin-bottom:14px;">' +
@@ -306,6 +308,7 @@
             '<div style="font-size:11px;opacity:0.6;margin-bottom:16px;">A matching local database, user, and grants are created automatically; the dump is imported and registered in aaPanel.</div>' +
             '</div>' +
 
+            '<div class="mig-form-status" style="font-size:12px;margin-bottom:8px;min-height:16px;"></div>' +
             '<button type="button" class="mig-btn mig-btn-primary mig-start-btn" ' +
             'style="width:100%;padding:9px 0;border:none;border-radius:6px;background:#1a94ff;color:#fff;font-weight:600;cursor:pointer;">Start Migration</button>' +
             '<button type="button" class="mig-btn mig-btn-secondary mig-history-btn" ' +
@@ -328,6 +331,26 @@
             '</div>' +
             '<label style="display:block;font-size:11px;opacity:0.6;margin-bottom:4px;">Console Log</label>' +
             '<div class="mig-console" style="background:rgba(0,0,0,0.75);color:#fca5a5;border-radius:6px;padding:10px;height:220px;overflow-y:auto;font-family:Consolas,Monaco,monospace;font-size:11.5px;line-height:1.5;"></div>' +
+            '<div class="mig-postmigrate" style="display:none;margin-top:14px;">' +
+            '<div class="mig-chown-status" style="font-size:11.5px;margin-bottom:10px;"></div>' +
+            '<div class="mig-laravel-box" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.4);font-size:12px;">' +
+            '<strong>Laravel application detected</strong>' +
+            '<div class="mig-laravel-body" style="margin-top:6px;opacity:0.9;"></div>' +
+            '</div>' +
+            '<div class="mig-symlink-reminder" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);font-size:12px;">' +
+            '<strong>&#9888; PHP symlink() function is disabled</strong>' +
+            '<div class="mig-symlink-reminder-body" style="margin-top:6px;opacity:0.9;"></div>' +
+            '</div>' +
+            '<div class="mig-symlink-autodelete-status" style="font-size:11.5px;margin-bottom:10px;"></div>' +
+            '<div class="mig-broken-links-box" style="display:none;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+            '<label style="font-size:12px;font-weight:600;">Broken Symlinks Found In Migrated Folder</label>' +
+            '<button type="button" class="mig-btn mig-btn-secondary mig-delete-symlinks-btn" ' +
+            'style="font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;background:transparent;">Delete Selected</button>' +
+            '</div>' +
+            '<div class="mig-broken-links-list" style="max-height:150px;overflow-y:auto;font-size:11.5px;font-family:Consolas,Monaco,monospace;"></div>' +
+            '</div>' +
+            '</div>' +
             '</div>' +
             '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">' +
             '<button type="button" class="mig-btn mig-cancel-btn" style="padding:7px 16px;border:none;border-radius:6px;background:#ed4014;color:#fff;cursor:pointer;">Abort</button>' +
@@ -443,23 +466,28 @@
         var filesSection = ourPane.querySelector('.mig-files-section');
         var dbToggle = ourPane.querySelector('.mig-db-toggle');
         var dbSection = ourPane.querySelector('.mig-db-section');
+        var remotePathSection = ourPane.querySelector('.mig-remote-path-section');
         var remoteDirInput = ourPane.querySelector('.mig-remote-dir');
         var destHint = ourPane.querySelector('.mig-dest-hint');
         var excludeInput = ourPane.querySelector('.mig-exclude');
         var syncMode = ourPane.querySelector('.mig-sync-mode');
         var overwrite = ourPane.querySelector('.mig-overwrite');
+        var autoDeleteSymlinks = ourPane.querySelector('.mig-auto-delete-symlinks');
         var dbSourceMode = ourPane.querySelector('.mig-db-source-mode');
         var dbWpConfigGroup = ourPane.querySelector('.mig-db-wpconfig-group');
         var dbWpConfigPath = ourPane.querySelector('.mig-db-wpconfig-path');
         var dbEnvGroup = ourPane.querySelector('.mig-db-env-group');
-        var dbEnvPath = ourPane.querySelector('.mig-db-env-path');
+        var envScanStatus = ourPane.querySelector('.mig-env-scan-status');
+        var envSelect = ourPane.querySelector('.mig-db-env-select');
         var dbManualGroup = ourPane.querySelector('.mig-db-manual-group');
         var dbHost = ourPane.querySelector('.mig-db-host');
         var dbPort = ourPane.querySelector('.mig-db-port');
         var dbName = ourPane.querySelector('.mig-db-name');
         var dbUser = ourPane.querySelector('.mig-db-user');
         var dbPassword = ourPane.querySelector('.mig-db-password');
+        var hostInput = ourPane.querySelector('.mig-host');
         var startBtn = ourPane.querySelector('.mig-start-btn');
+        var formStatus = ourPane.querySelector('.mig-form-status');
         var historyBtn = ourPane.querySelector('.mig-history-btn');
         var form = ourPane.querySelector('.mig-form');
         var transferPanel = ourPane.querySelector('.mig-transfer-panel');
@@ -471,6 +499,16 @@
         var consoleEl = ourPane.querySelector('.mig-console');
         var cancelBtn = ourPane.querySelector('.mig-cancel-btn');
         var closePanelBtn = ourPane.querySelector('.mig-close-panel-btn');
+        var postMigrateBox = ourPane.querySelector('.mig-postmigrate');
+        var chownStatusEl = ourPane.querySelector('.mig-chown-status');
+        var laravelBox = ourPane.querySelector('.mig-laravel-box');
+        var laravelBody = ourPane.querySelector('.mig-laravel-body');
+        var symlinkReminderBox = ourPane.querySelector('.mig-symlink-reminder');
+        var symlinkReminderBody = ourPane.querySelector('.mig-symlink-reminder-body');
+        var symlinkAutoDeleteStatus = ourPane.querySelector('.mig-symlink-autodelete-status');
+        var brokenLinksBox = ourPane.querySelector('.mig-broken-links-box');
+        var brokenLinksList = ourPane.querySelector('.mig-broken-links-list');
+        var deleteSymlinksBtn = ourPane.querySelector('.mig-delete-symlinks-btn');
 
         var loaded = false;
         var resolvedLocalDir = null;
@@ -530,13 +568,13 @@
         function resolveDestination() {
             if (!siteName) {
                 destHint.textContent = 'Could not detect the site name from the dialog title.';
-                startBtn.disabled = true;
+                refreshStartButtonState();
                 return;
             }
             requestPlugin('get_websites', {}, function (data) {
                 if (!data || !data.status) {
                     destHint.textContent = 'Failed to resolve this site\'s path: ' + ((data && (data.message || data.msg)) || 'unknown error');
-                    startBtn.disabled = true;
+                    refreshStartButtonState();
                     return;
                 }
                 var list = data.data || [];
@@ -546,13 +584,54 @@
                 }
                 if (!match) {
                     destHint.textContent = 'Could not find a registered website matching "' + siteName + '".';
-                    startBtn.disabled = true;
+                    refreshStartButtonState();
                     return;
                 }
                 resolvedLocalDir = match.path;
                 destHint.textContent = resolvedLocalDir;
-                startBtn.disabled = false;
+                refreshStartButtonState();
             });
+        }
+
+        // Recompute whether everything required to start a migration is
+        // filled in, and reflect it on the Start Migration button so it's
+        // visibly disabled (instead of silently no-oping, or writing an
+        // error into an element hidden inside the collapsed custom-SSH box)
+        // whenever something is still missing.
+        function refreshStartButtonState() {
+            var ready = true;
+
+            if (!resolvedLocalDir) {
+                ready = false;
+            } else {
+                var filesEnabled = filesToggle.checked;
+                var dbEnabled = dbToggle.checked;
+                if (!filesEnabled && !dbEnabled) {
+                    ready = false;
+                } else {
+                    if (customToggle.checked) {
+                        if (!hostInput.value.trim()) ready = false;
+                    } else if (!nodeSelect.value) {
+                        ready = false;
+                    }
+
+                    if (ready) {
+                        var envModeSelected = dbEnabled && dbSourceMode.value === 'env';
+                        if ((filesEnabled || envModeSelected) && !remoteDirInput.value.trim()) ready = false;
+                    }
+
+                    if (ready && dbEnabled) {
+                        var mode = dbSourceMode.value;
+                        if (mode === 'wp_config' && !dbWpConfigPath.value.trim()) ready = false;
+                        else if (mode === 'env' && !envSelect.value) ready = false;
+                        else if (mode === 'manual' && (!dbName.value.trim() || !dbUser.value.trim())) ready = false;
+                    }
+                }
+            }
+
+            startBtn.disabled = !ready;
+            startBtn.style.opacity = ready ? '1' : '0.5';
+            startBtn.style.cursor = ready ? 'pointer' : 'not-allowed';
         }
 
         customToggle.addEventListener('change', function () {
@@ -563,6 +642,14 @@
                 nodeSelect.disabled = false;
                 customBox.style.display = 'none';
             }
+            refreshStartButtonState();
+            scanEnvFiles();
+        });
+
+        hostInput.addEventListener('input', function () {
+            refreshStartButtonState();
+            clearTimeout(envScanTimer);
+            envScanTimer = setTimeout(scanEnvFiles, 700);
         });
 
         authType.addEventListener('change', function () {
@@ -580,16 +667,97 @@
                 customToggle.checked = false;
                 customBox.style.display = 'none';
             }
+            refreshStartButtonState();
+            scanEnvFiles();
         });
 
         refreshNodesBtn.addEventListener('click', loadNodes);
 
+        // The Remote Source Path field is shared by file transfer and by the
+        // .env auto-detector below -- show it whenever either one needs it,
+        // instead of tying its visibility to the Files toggle alone.
+        function updateRemotePathVisibility() {
+            var needed = filesToggle.checked || (dbToggle.checked && dbSourceMode.value === 'env');
+            remotePathSection.style.display = needed ? '' : 'none';
+        }
+
+        var envScanTimer = null;
+        function scanEnvFiles() {
+            if (!dbToggle.checked || dbSourceMode.value !== 'env') return;
+
+            var remotePath = remoteDirInput.value.trim();
+            envSelect.style.display = 'none';
+            envSelect.innerHTML = '';
+            if (!remotePath) {
+                envScanStatus.textContent = 'Enter the remote source path above to search for a .env file.';
+                envScanStatus.style.color = theme.textColor;
+                refreshStartButtonState();
+                return;
+            }
+
+            var res = gatherSshArgs();
+            if (res.error) {
+                envScanStatus.textContent = res.error;
+                envScanStatus.style.color = '#ed4014';
+                refreshStartButtonState();
+                return;
+            }
+
+            var args = res.args;
+            args.path = remotePath;
+            envScanStatus.textContent = 'Scanning remote path for .env files...';
+            envScanStatus.style.color = theme.textColor;
+            refreshStartButtonState();
+
+            requestPlugin('find_env_files', args, function (data) {
+                // Bail out if the user changed mode/path again while this request was in flight.
+                if (!dbToggle.checked || dbSourceMode.value !== 'env' || remoteDirInput.value.trim() !== remotePath) return;
+
+                var list = (data && data.status && data.data) || [];
+                if (!data || !data.status) {
+                    envScanStatus.textContent = (data && (data.message || data.msg)) || 'Failed to scan for .env files.';
+                    envScanStatus.style.color = '#ed4014';
+                    refreshStartButtonState();
+                    return;
+                }
+                if (!list.length) {
+                    envScanStatus.textContent = 'No .env file found under the remote source path.';
+                    envScanStatus.style.color = '#ed4014';
+                    refreshStartButtonState();
+                    return;
+                }
+                if (list.length === 1) {
+                    envScanStatus.textContent = 'Detected .env file: ' + list[0];
+                    envScanStatus.style.color = '#10b981';
+                    envSelect.innerHTML = '<option value="' + list[0] + '">' + list[0] + '</option>';
+                } else {
+                    envScanStatus.textContent = 'Multiple .env files found -- select one:';
+                    envScanStatus.style.color = theme.textColor;
+                    envSelect.innerHTML = list.map(function (p) {
+                        return '<option value="' + p + '">' + p + '</option>';
+                    }).join('');
+                    envSelect.style.display = '';
+                }
+                refreshStartButtonState();
+            });
+        }
+
+        envSelect.addEventListener('change', refreshStartButtonState);
+
+        updateRemotePathVisibility();
+        refreshStartButtonState();
+
         filesToggle.addEventListener('change', function () {
             filesSection.style.display = this.checked ? '' : 'none';
+            updateRemotePathVisibility();
+            refreshStartButtonState();
         });
 
         dbToggle.addEventListener('change', function () {
             dbSection.style.display = this.checked ? '' : 'none';
+            updateRemotePathVisibility();
+            if (this.checked) scanEnvFiles();
+            refreshStartButtonState();
         });
 
         dbSourceMode.addEventListener('change', function () {
@@ -599,24 +767,37 @@
             if (this.value === 'wp_config') dbWpConfigGroup.style.display = '';
             else if (this.value === 'env') dbEnvGroup.style.display = '';
             else dbManualGroup.style.display = '';
+            updateRemotePathVisibility();
+            if (this.value === 'env') scanEnvFiles();
+            refreshStartButtonState();
         });
 
-        // Suggest wp-config.php / .env paths alongside the remote source dir
-        // once the user starts typing it, without clobbering anything they
-        // already typed there themselves.
+        // Suggest a wp-config.php path alongside the remote source dir once
+        // the user starts typing it (without clobbering anything they
+        // already typed there themselves), and re-scan for .env files.
         remoteDirInput.addEventListener('input', function () {
             var dir = remoteDirInput.value.trim();
-            if (!dir) return;
-            var sep = (dir.charAt(dir.length - 1) === '/') ? '' : '/';
-            if (!dbWpConfigPath.value.trim()) dbWpConfigPath.value = dir + sep + 'wp-config.php';
-            if (!dbEnvPath.value.trim()) dbEnvPath.value = dir + sep + '.env';
+            if (dir) {
+                var sep = (dir.charAt(dir.length - 1) === '/') ? '' : '/';
+                if (!dbWpConfigPath.value.trim()) dbWpConfigPath.value = dir + sep + 'wp-config.php';
+            }
+            clearTimeout(envScanTimer);
+            envScanTimer = setTimeout(scanEnvFiles, 700);
+            refreshStartButtonState();
         });
+
+        dbWpConfigPath.addEventListener('input', refreshStartButtonState);
+        dbName.addEventListener('input', refreshStartButtonState);
+        dbUser.addEventListener('input', refreshStartButtonState);
 
         ourPane.querySelectorAll('[data-fill]').forEach(function (chip) {
             chip.addEventListener('click', function () {
                 var path = chip.getAttribute('data-fill');
                 var current = remoteDirInput.value || '/';
                 if (current === '/' || current.indexOf(path) !== 0) remoteDirInput.value = path;
+                clearTimeout(envScanTimer);
+                envScanTimer = setTimeout(scanEnvFiles, 200);
+                refreshStartButtonState();
             });
         });
 
@@ -692,6 +873,151 @@
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         }
 
+        function resetPostMigrateBox() {
+            postMigrateBox.style.display = 'none';
+            chownStatusEl.textContent = '';
+            laravelBox.style.display = 'none';
+            laravelBody.innerHTML = '';
+            symlinkReminderBox.style.display = 'none';
+            symlinkReminderBody.innerHTML = '';
+            symlinkAutoDeleteStatus.textContent = '';
+            brokenLinksBox.style.display = 'none';
+            brokenLinksList.innerHTML = '';
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderPostMigrate(data) {
+            postMigrateBox.style.display = '';
+
+            if (data.chown_ok === false) {
+                chownStatusEl.textContent = 'Warning: failed to set ownership to www:www -- ' + (data.chown_error || 'unknown error');
+                chownStatusEl.style.color = '#ef4444';
+            } else if (data.chown_ok === true) {
+                chownStatusEl.textContent = 'Ownership of all migrated folders and files set to www:www.';
+                chownStatusEl.style.color = '#10b981';
+            } else {
+                chownStatusEl.textContent = '';
+            }
+
+            var laravel = data.laravel;
+            if (laravel && laravel.detected) {
+                laravelBox.style.display = '';
+                var lhtml = 'Found <code>artisan</code> at <code>' + escapeHtml(laravel.artisan_dir) + '</code>.';
+                if (laravel.error) {
+                    lhtml += '<div style="margin-top:6px;color:#ef4444;">' + escapeHtml(laravel.error) + ' Maintenance commands were skipped.</div>';
+                } else if (laravel.commands && laravel.commands.length) {
+                    lhtml += '<div style="margin-top:6px;">Ran maintenance commands using PHP ' + escapeHtml(laravel.php_version) + ':</div>';
+                    lhtml += '<ul style="margin:6px 0 0;padding-left:18px;">';
+                    laravel.commands.forEach(function (c) {
+                        var color = c.ok ? '#10b981' : '#ef4444';
+                        lhtml += '<li style="margin-bottom:4px;"><code>php artisan ' + escapeHtml(c.command) + '</code> -- ' +
+                            '<span style="color:' + color + ';font-weight:600;">' + (c.ok ? 'OK' : 'FAILED') + '</span></li>';
+                    });
+                    lhtml += '</ul>';
+                }
+                laravelBody.innerHTML = lhtml;
+            } else {
+                laravelBox.style.display = 'none';
+            }
+
+            var issues = data.php_symlink_issues || [];
+            if (issues.length) {
+                symlinkReminderBox.style.display = '';
+                var html = 'This site may rely on symlinks, but PHP\'s <code>symlink()</code> function is currently disabled on this server. ' +
+                    'Enable it so symlinks created by the migrated application work correctly:';
+                html += '<ul style="margin:8px 0 0;padding-left:18px;">';
+                issues.forEach(function (issue) {
+                    html += '<li style="margin-bottom:6px;">PHP ' + escapeHtml(issue.version) + ' &mdash; ' +
+                        '<button type="button" class="mig-btn mig-btn-secondary mig-fix-symlink-btn" data-version="' + escapeHtml(issue.version) + '" ' +
+                        'style="font-size:11px;padding:3px 8px;border-radius:4px;cursor:pointer;background:transparent;">Enable symlink()</button> ' +
+                        '<span class="mig-fix-symlink-status" data-version="' + escapeHtml(issue.version) + '" style="font-size:11px;"></span></li>';
+                });
+                html += '</ul>';
+                symlinkReminderBody.innerHTML = html;
+
+                symlinkReminderBody.querySelectorAll('.mig-fix-symlink-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var version = btn.getAttribute('data-version');
+                        var statusEl = symlinkReminderBody.querySelector('.mig-fix-symlink-status[data-version="' + version + '"]');
+                        btn.disabled = true;
+                        statusEl.textContent = 'Applying...';
+                        statusEl.style.color = theme.textColor;
+                        requestPlugin('fix_php_symlink', { version: version }, function (res) {
+                            var msg = (res && (res.message || res.msg)) || 'Done.';
+                            statusEl.textContent = msg;
+                            statusEl.style.color = (res && res.status) ? '#10b981' : '#ef4444';
+                            if (res && res.status) btn.style.display = 'none';
+                            else btn.disabled = false;
+                        });
+                    });
+                });
+            } else {
+                symlinkReminderBox.style.display = 'none';
+            }
+
+            if (data.auto_delete_symlinks) {
+                var deletedList = data.symlinks_deleted || [];
+                var deleteErrors = data.symlink_delete_errors || [];
+                var summary = deletedList.length ? ('Auto-deleted ' + deletedList.length + ' broken symlink(s).') : 'No broken symlinks found to auto-delete.';
+                if (deleteErrors.length) {
+                    summary += ' ' + deleteErrors.length + ' could not be deleted -- see below.';
+                }
+                symlinkAutoDeleteStatus.textContent = summary;
+                symlinkAutoDeleteStatus.style.color = deleteErrors.length ? '#ef4444' : '#10b981';
+            } else {
+                symlinkAutoDeleteStatus.textContent = '';
+            }
+
+            var broken = data.broken_symlinks || [];
+            if (broken.length) {
+                brokenLinksBox.style.display = '';
+                var listHtml = '';
+                broken.forEach(function (relPath) {
+                    listHtml += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;">' +
+                        '<input type="checkbox" class="mig-symlink-check" data-path="' + escapeHtml(relPath) + '" checked> ' +
+                        '<span style="word-break:break-all;">' + escapeHtml(relPath) + '</span></label>';
+                });
+                brokenLinksList.innerHTML = listHtml;
+            } else {
+                brokenLinksBox.style.display = 'none';
+            }
+        }
+
+        deleteSymlinksBtn.addEventListener('click', function () {
+            var checks = brokenLinksList.querySelectorAll('.mig-symlink-check:checked');
+            var paths = [];
+            checks.forEach(function (c) { paths.push(c.getAttribute('data-path')); });
+            if (!paths.length) {
+                window.alert('No broken symlinks selected.');
+                return;
+            }
+            if (!window.confirm('Delete ' + paths.length + ' broken symlink(s)? This cannot be undone.')) return;
+
+            deleteSymlinksBtn.disabled = true;
+            requestPlugin('delete_symlinks', { local_dir: resolvedLocalDir, paths: JSON.stringify(paths) }, function (res) {
+                deleteSymlinksBtn.disabled = false;
+                if (!res || !res.status) {
+                    window.alert((res && (res.message || res.msg)) || 'Failed to delete symlinks.');
+                    return;
+                }
+                var deleted = (res.data && res.data.deleted) || [];
+                deleted.forEach(function (p) {
+                    var check = brokenLinksList.querySelector('.mig-symlink-check[data-path="' + p.replace(/"/g, '\\"') + '"]');
+                    var label = check && check.closest('label');
+                    if (label) label.remove();
+                });
+                if (!brokenLinksList.querySelectorAll('.mig-symlink-check').length) {
+                    brokenLinksBox.style.display = 'none';
+                }
+                if (res.data && res.data.errors && res.data.errors.length) {
+                    window.alert('Some symlinks could not be deleted:\n' + res.data.errors.join('\n'));
+                }
+            });
+        });
+
         function pollStatus() {
             stopPolling();
             pollTimer = setInterval(function () {
@@ -710,6 +1036,7 @@
                         setStatusBadge('SUCCESS', 'rgba(16,185,129,0.15)', '#10b981');
                         cancelBtn.style.display = 'none';
                         closePanelBtn.style.display = '';
+                        renderPostMigrate(data);
                     } else if (data.task_status === 'error') {
                         stopPolling();
                         setStatusBadge('ERROR', 'rgba(239,68,68,0.15)', '#ef4444');
@@ -722,33 +1049,35 @@
         }
 
         startBtn.addEventListener('click', function () {
+            formStatus.textContent = '';
+
             if (!resolvedLocalDir) {
-                testStatus.textContent = 'Destination path is not resolved yet.';
-                testStatus.style.color = '#ed4014';
+                formStatus.textContent = 'Destination path is not resolved yet.';
+                formStatus.style.color = '#ed4014';
                 return;
             }
 
             var filesEnabled = filesToggle.checked;
             var dbEnabled = dbToggle.checked;
             if (!filesEnabled && !dbEnabled) {
-                testStatus.textContent = 'Select at least one of Files or Database to migrate.';
-                testStatus.style.color = '#ed4014';
+                formStatus.textContent = 'Select at least one of Files or Database to migrate.';
+                formStatus.style.color = '#ed4014';
                 return;
             }
 
-            var remoteDir = '';
-            if (filesEnabled) {
-                remoteDir = remoteDirInput.value.trim();
-                if (!remoteDir) {
-                    remoteDirInput.focus();
-                    return;
-                }
+            var envModeSelected = dbEnabled && dbSourceMode.value === 'env';
+            var remoteDir = remoteDirInput.value.trim();
+            if ((filesEnabled || envModeSelected) && !remoteDir) {
+                formStatus.textContent = 'Remote source path is required.';
+                formStatus.style.color = '#ed4014';
+                remoteDirInput.focus();
+                return;
             }
 
             var res = gatherSshArgs();
             if (res.error) {
-                testStatus.textContent = res.error;
-                testStatus.style.color = '#ed4014';
+                formStatus.textContent = res.error;
+                formStatus.style.color = '#ed4014';
                 return;
             }
             var args = res.args;
@@ -760,6 +1089,7 @@
                 args.exclude_folders = excludeInput.value.trim();
                 args.sync_mode = syncMode.checked ? 1 : 0;
                 args.overwrite = overwrite.checked ? 1 : 0;
+                args.auto_delete_symlinks = autoDeleteSymlinks.checked ? 1 : 0;
                 summary.push('files into ' + resolvedLocalDir);
             } else {
                 // No files requested -- tells the backend to skip the rsync
@@ -773,16 +1103,20 @@
                 args.db_source_mode = mode;
                 if (mode === 'wp_config') {
                     var wpPath = dbWpConfigPath.value.trim();
-                    if (!wpPath) { dbWpConfigPath.focus(); return; }
+                    if (!wpPath) {
+                        formStatus.textContent = 'Remote wp-config.php path is required.';
+                        formStatus.style.color = '#ed4014';
+                        dbWpConfigPath.focus();
+                        return;
+                    }
                     args.db_wp_config_path = wpPath;
                     summary.push('the database (credentials from wp-config.php)');
                 } else if (mode === 'env') {
-                    var envPath = dbEnvPath.value.trim();
-                    if (!envPath) { dbEnvPath.focus(); return; }
-                    if (!/\.env$/.test(envPath)) {
-                        var envSep = (envPath.charAt(envPath.length - 1) === '/') ? '' : '/';
-                        envPath = envPath + envSep + '.env';
-                        dbEnvPath.value = envPath;
+                    var envPath = envSelect.value ? envSelect.value.trim() : '';
+                    if (!envPath) {
+                        formStatus.textContent = 'No .env file detected under the remote source path yet. Wait for the scan to finish, or choose another credentials source.';
+                        formStatus.style.color = '#ed4014';
+                        return;
                     }
                     args.db_env_path = envPath;
                     summary.push('the database (credentials from .env)');
@@ -790,8 +1124,8 @@
                     var manualName = dbName.value.trim();
                     var manualUser = dbUser.value.trim();
                     if (!manualName || !manualUser) {
-                        testStatus.textContent = 'Database name and username are required for manual mode.';
-                        testStatus.style.color = '#ed4014';
+                        formStatus.textContent = 'Database name and username are required for manual mode.';
+                        formStatus.style.color = '#ed4014';
                         return;
                     }
                     args.db_host = dbHost.value.trim() || '127.0.0.1';
@@ -811,10 +1145,10 @@
 
             startBtn.disabled = true;
             requestPlugin('start_copy', args, function (data) {
-                startBtn.disabled = false;
                 if (!data || !data.status) {
-                    testStatus.textContent = (data && (data.message || data.msg)) || 'Failed to start migration.';
-                    testStatus.style.color = '#ed4014';
+                    refreshStartButtonState();
+                    formStatus.textContent = (data && (data.message || data.msg)) || 'Failed to start migration.';
+                    formStatus.style.color = '#ed4014';
                     return;
                 }
                 activeTaskId = data.data.task_id;
@@ -826,6 +1160,7 @@
                 metricEta.textContent = '--:--:--';
                 setStatusBadge('RUNNING', 'rgba(245,158,11,0.15)', '#f59e0b');
                 consoleEl.innerHTML = '';
+                resetPostMigrateBox();
                 cancelBtn.style.display = '';
                 closePanelBtn.style.display = 'none';
                 pollStatus();
@@ -849,6 +1184,8 @@
             transferPanel.style.display = 'none';
             form.style.display = '';
             activeTaskId = null;
+            formStatus.textContent = '';
+            refreshStartButtonState();
         });
 
         historyBtn.addEventListener('click', function () {

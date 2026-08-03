@@ -324,6 +324,30 @@ def list_remote_dir_shell(host, port, username, auth_type, password, key_content
     except Exception as e:
         print_result(False, f"Failed to list directory: {str(e)}")
 
+def find_env_files(config):
+    node_id = config.get("node_id")
+    if node_id:
+        creds = load_node_credentials(node_id)
+        if not creds:
+            print_result(False, f"Node ID {node_id} not found.")
+            return
+        config.update(creds)
+
+    path = config.get("path", "").strip()
+    if not path:
+        print_result(False, "Remote path is required.")
+        return
+
+    escaped_path = path.replace("'", "'\\''")
+    cmd = f"find '{escaped_path}' -maxdepth 3 -iname '.env' -type f 2>/dev/null"
+    status, out, err = run_remote_ssh_command(config, cmd)
+    if not status:
+        print_result(False, f"Failed to scan for .env files: {err or 'unknown error'}")
+        return
+
+    files = sorted(set(line.strip() for line in out.splitlines() if line.strip()))
+    print_result(True, "Success", files)
+
 def get_local_mysql_root():
     # 1. Try /www/server/panel/data/mysql-root.pl
     root_pl_path = "/www/server/panel/data/mysql-root.pl"
@@ -547,6 +571,182 @@ def register_database_in_aapanel(db_name, db_user, db_password):
 def extract_wp_define(content, name):
     m = re.search(r"define\s*\(\s*['\"]" + re.escape(name) + r"['\"]\s*,\s*['\"](.*?)['\"]\s*\)", content, re.DOTALL)
     return m.group(1) if m else ""
+
+def chown_migrated_folder(local_dir):
+    # aaPanel's nginx/php-fpm workers run as www:www; files pulled in via
+    # rsync keep whatever uid/gid rsync ran as (usually root), so the site
+    # can't read/write them until ownership is corrected.
+    #
+    # aaPanel protects each site's .user.ini with `chattr +i` (immutable) so
+    # the site's own PHP process can't tamper with its ini overrides --
+    # chown on it always fails with "Operation not permitted", so it's
+    # skipped explicitly (find -prune) instead of letting the recursive
+    # chown choke on it. Using subprocess.run (not check_call) also matters
+    # here: check_call never reads the piped stdout/stderr, so once enough
+    # per-file errors fill the OS pipe buffer the child blocks writing to
+    # it and the call hangs forever -- silently stalling the whole task
+    # (including ever reporting the Laravel artisan results that already
+    # ran before this step). run()/communicate() drain both pipes as the
+    # process runs, and the timeout guarantees this can't hang indefinitely
+    # even if something else unexpected goes wrong.
+    try:
+        proc = subprocess.run(
+            ["find", local_dir, "-name", ".user.ini", "-prune", "-o", "-exec", "chown", "www:www", "{}", "+"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=300
+        )
+        if proc.returncode == 0:
+            return True, ""
+        return False, (proc.stderr or "").strip() or f"chown exited with status {proc.returncode}"
+    except subprocess.TimeoutExpired:
+        return False, "chown timed out after 300 seconds"
+    except Exception as e:
+        return False, str(e)
+
+def find_broken_symlinks(base_dir):
+    broken = []
+    for root, dirs, files in os.walk(base_dir, followlinks=False):
+        for name in dirs + files:
+            full = os.path.join(root, name)
+            if os.path.islink(full) and not os.path.exists(full):
+                broken.append(os.path.relpath(full, base_dir))
+    return sorted(broken)
+
+def get_site_name_by_path(local_dir):
+    norm_path = os.path.normpath(local_dir)
+    db_paths = [
+        "/www/server/panel/data/default.db",
+        "/www/server/panel/data/db/panel.db",
+        "/www/server/panel/data/panel.db"
+    ]
+    import sqlite3
+    for path in db_paths:
+        if os.path.exists(path):
+            try:
+                conn = sqlite3.connect(path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sites'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT name, path FROM sites")
+                    for name, site_path in cursor.fetchall():
+                        if site_path and os.path.normpath(site_path) == norm_path:
+                            conn.close()
+                            return name
+                conn.close()
+            except Exception:
+                pass
+    return None
+
+def get_site_php_version(site_name):
+    # aaPanel vhost configs reference the FPM socket by PHP version, e.g.
+    # "fastcgi_pass unix:/tmp/php-cgi-74.sock" for nginx.
+    vhost_paths = [
+        "/www/server/panel/vhost/nginx/{0}.conf".format(site_name),
+        "/www/server/panel/vhost/apache/{0}.conf".format(site_name),
+    ]
+    for vp in vhost_paths:
+        if os.path.exists(vp):
+            try:
+                with open(vp, "r") as f:
+                    content = f.read()
+                m = re.search(r'php-?cgi-?(\d{2,3})', content)
+                if m:
+                    return m.group(1)
+            except Exception:
+                pass
+    return None
+
+def check_disable_functions(ini_path):
+    # Returns (is_symlink_disabled, disabled_functions_list)
+    try:
+        with open(ini_path, "r") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith(';'):
+                    continue
+                if stripped.lower().startswith('disable_functions') and '=' in stripped:
+                    val = stripped.split('=', 1)[1].strip()
+                    funcs = [x.strip() for x in val.split(',') if x.strip()]
+                    disabled = any(f_.lower() == 'symlink' for f_ in funcs)
+                    return disabled, funcs
+        return False, []
+    except Exception:
+        return False, []
+
+def find_php_versions_with_symlink_disabled():
+    # Used when the migrated folder can't be matched to a registered
+    # website (e.g. a plain folder-to-folder transfer), so we can't know
+    # which PHP version actually serves it -- report every installed PHP
+    # version that currently has symlink() disabled instead.
+    result = []
+    php_base = "/www/server/php"
+    if os.path.isdir(php_base):
+        for version in sorted(os.listdir(php_base)):
+            ini_path = os.path.join(php_base, version, "etc", "php.ini")
+            if os.path.exists(ini_path):
+                disabled, _ = check_disable_functions(ini_path)
+                if disabled:
+                    result.append({"version": version})
+    return result
+
+def get_php_symlink_issues(local_dir, php_version=None):
+    if php_version is None:
+        site_name = get_site_name_by_path(local_dir)
+        php_version = get_site_php_version(site_name) if site_name else None
+    if php_version:
+        ini_path = "/www/server/php/{0}/etc/php.ini".format(php_version)
+        disabled, _ = check_disable_functions(ini_path)
+        return [{"version": php_version}] if disabled else []
+    return find_php_versions_with_symlink_disabled()
+
+def find_artisan_dir(base_dir):
+    # Laravel's "artisan" CLI entrypoint lives at the application root,
+    # alongside .env -- check there first, then a shallow scan in case the
+    # app was deployed inside a nested subfolder (e.g. a repo-name folder).
+    direct = os.path.join(base_dir, "artisan")
+    if os.path.isfile(direct):
+        return base_dir
+    for root, dirs, files in os.walk(base_dir):
+        depth = root[len(base_dir):].count(os.sep)
+        if depth >= 2:
+            dirs[:] = []
+            continue
+        if "artisan" in files:
+            return root
+    return None
+
+def get_php_binary(php_version):
+    path = "/www/server/php/{0}/bin/php".format(php_version)
+    return path if os.path.exists(path) else None
+
+def run_artisan_commands(artisan_dir, php_bin, log_file):
+    # Every command below always runs, even if an earlier one failed or
+    # timed out -- a broken config:cache shouldn't prevent storage:link,
+    # up, or cache:clear from still being attempted.
+    commands = ["config:cache", "storage:link", "up", "cache:clear"]
+    results = []
+    for cmd in commands:
+        try:
+            p = subprocess.Popen([php_bin, "artisan", cmd], cwd=artisan_dir,
+                                  stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            try:
+                out, _ = p.communicate(timeout=120)
+                ok = p.returncode == 0
+            except subprocess.TimeoutExpired:
+                p.kill()
+                out, _ = p.communicate()
+                out = (out or "") + "\nCommand timed out after 120 seconds and was killed."
+                ok = False
+        except Exception as e:
+            out = str(e)
+            ok = False
+        output = out.strip()[:2000]
+        results.append({"command": cmd, "ok": ok, "output": output})
+        with open(log_file, "a") as lf:
+            lf.write("php artisan {0}: {1}\n".format(cmd, "OK" if ok else "FAILED"))
+            if output:
+                lf.write(output + "\n")
+    return results
 
 def migrate_database(config, log_file, update_status):
     db_migrate = config.get("db_migrate")
@@ -773,16 +973,19 @@ def run_copy(config):
     status_file = os.path.join(tmp_base, f"copy_status_{task_id}.json")
     log_file = os.path.join(tmp_base, f"copy_log_{task_id}.log")
 
-    def update_status(progress=0, speed="", eta="", status="running", error=""):
+    def update_status(progress=0, speed="", eta="", status="running", error="", extra=None):
+        data = {
+            "progress": progress,
+            "speed": speed,
+            "eta": eta,
+            "status": status,
+            "error": error,
+            "updated_at": int(time.time())
+        }
+        if extra:
+            data.update(extra)
         with open(status_file, "w") as sf:
-            json.dump({
-                "progress": progress,
-                "speed": speed,
-                "eta": eta,
-                "status": status,
-                "error": error,
-                "updated_at": int(time.time())
-            }, sf)
+            json.dump(data, sf)
 
     db_only = config.get("db_only")
     is_db_only = db_only and (str(db_only) == "1" or db_only is True)
@@ -890,7 +1093,85 @@ def run_copy(config):
 
             if p.returncode == 0:
                 log_out.write(f"\nCopy task completed successfully at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                update_status(100, "", "", "success")
+
+                site_name = get_site_name_by_path(local_dir)
+                php_version = get_site_php_version(site_name) if site_name else None
+
+                auto_delete_symlinks_cfg = config.get("auto_delete_symlinks")
+                auto_delete_symlinks = bool(auto_delete_symlinks_cfg) and str(auto_delete_symlinks_cfg) in ("1", "True", "true")
+
+                def run_laravel_commands():
+                    info = {"detected": False}
+                    artisan_dir = find_artisan_dir(local_dir)
+                    if artisan_dir:
+                        log_out.write(f"Detected Laravel application (artisan found at {artisan_dir}).\n")
+                        info = {"detected": True, "artisan_dir": artisan_dir, "php_version": php_version, "commands": []}
+                        if not php_version:
+                            log_out.write("Warning: could not determine the website's configured PHP version; skipping artisan commands.\n")
+                            info["error"] = "Could not determine the website's configured PHP version."
+                        else:
+                            php_bin = get_php_binary(php_version)
+                            if not php_bin:
+                                log_out.write(f"Warning: PHP {php_version} binary not found; skipping artisan commands.\n")
+                                info["error"] = f"PHP {php_version} binary not found."
+                            else:
+                                log_out.write(f"Running Laravel maintenance commands using PHP {php_version} ({php_bin})...\n")
+                                log_out.flush()
+                                info["commands"] = run_artisan_commands(artisan_dir, php_bin, log_file)
+                        log_out.flush()
+                    return info
+
+                symlinks_deleted = []
+                symlink_delete_errors = []
+
+                log_out.write("Scanning for broken symlinks in the migrated folder...\n")
+                log_out.flush()
+                broken_symlinks = find_broken_symlinks(local_dir)
+                log_out.write(f"Found {len(broken_symlinks)} broken symlink(s).\n")
+
+                if auto_delete_symlinks:
+                    # Delete broken symlinks (and only then run artisan) so
+                    # Laravel's own maintenance commands -- storage:link in
+                    # particular -- run against an already-cleaned tree
+                    # instead of racing a symlink checklist the user hasn't
+                    # reviewed yet.
+                    if broken_symlinks:
+                        log_out.write(f"Auto-deleting {len(broken_symlinks)} broken symlink(s)...\n")
+                        log_out.flush()
+                        symlinks_deleted, symlink_delete_errors = delete_symlinks_in_dir(local_dir, broken_symlinks)
+                        log_out.write(f"Deleted {len(symlinks_deleted)} broken symlink(s).\n")
+                        for err in symlink_delete_errors:
+                            log_out.write(f"Warning: {err}\n")
+                        broken_symlinks = [p for p in broken_symlinks if p not in symlinks_deleted]
+                    log_out.flush()
+                    laravel_info = run_laravel_commands()
+                else:
+                    laravel_info = run_laravel_commands()
+
+                log_out.write("Setting ownership of migrated files to www:www...\n")
+                log_out.flush()
+                chown_ok, chown_err = chown_migrated_folder(local_dir)
+                if chown_ok:
+                    log_out.write("Ownership set to www:www successfully.\n")
+                else:
+                    log_out.write(f"Warning: failed to set ownership to www:www: {chown_err}\n")
+
+                php_symlink_issues = get_php_symlink_issues(local_dir, php_version)
+                if php_symlink_issues:
+                    versions = ", ".join(i["version"] for i in php_symlink_issues)
+                    log_out.write(f"PHP symlink() function is disabled for PHP version(s): {versions}\n")
+                log_out.flush()
+
+                update_status(100, "", "", "success", "", extra={
+                    "chown_ok": chown_ok,
+                    "chown_error": chown_err,
+                    "broken_symlinks": broken_symlinks,
+                    "php_symlink_issues": php_symlink_issues,
+                    "auto_delete_symlinks": auto_delete_symlinks,
+                    "symlinks_deleted": symlinks_deleted,
+                    "symlink_delete_errors": symlink_delete_errors,
+                    "laravel": laravel_info
+                })
                 print_result(True, "Copy Completed Successfully!")
             else:
                 log_out.write(f"\nCopy task failed with exit code {p.returncode}\n")
@@ -904,6 +1185,107 @@ def run_copy(config):
         with open(log_file, "a") as lf:
             lf.write(f"\nCritical Exception: {str(e)}\n")
         print_result(False, f"Error: {str(e)}")
+
+def delete_symlinks_in_dir(local_dir, paths):
+    base = os.path.normpath(local_dir)
+    deleted = []
+    errors = []
+    for rel in paths:
+        candidate = os.path.normpath(os.path.join(base, rel))
+        if candidate != base and not candidate.startswith(base + os.sep):
+            errors.append(f"{rel}: rejected (outside migrated folder)")
+            continue
+        if not os.path.islink(candidate):
+            errors.append(f"{rel}: not a symlink, skipped")
+            continue
+        if os.path.exists(candidate):
+            errors.append(f"{rel}: symlink target exists (not broken), skipped")
+            continue
+        try:
+            os.unlink(candidate)
+            deleted.append(rel)
+        except Exception as e:
+            errors.append(f"{rel}: {str(e)}")
+    return deleted, errors
+
+def delete_broken_symlinks(config):
+    local_dir = config.get("local_dir", "")
+    paths = config.get("paths", [])
+    if isinstance(paths, str):
+        try:
+            paths = json.loads(paths)
+        except Exception:
+            paths = [p.strip() for p in paths.split(",") if p.strip()]
+
+    if not local_dir or not os.path.isdir(local_dir):
+        print_result(False, "Invalid or missing local directory.")
+        return
+    if not paths:
+        print_result(False, "No symlink paths were specified.")
+        return
+
+    deleted, errors = delete_symlinks_in_dir(local_dir, paths)
+    print_result(True, f"Deleted {len(deleted)} broken symlink(s).", {"deleted": deleted, "errors": errors})
+
+def fix_php_symlink(config):
+    version = config.get("version") or config.get("php_version")
+    if not version:
+        site_name = config.get("site_name")
+        if site_name:
+            version = get_site_php_version(site_name)
+    if not version:
+        print_result(False, "Could not determine which PHP version to fix.")
+        return
+    version = str(version)
+    if not re.match(r'^\d{1,3}$', version):
+        print_result(False, f"Invalid PHP version: {version}")
+        return
+
+    ini_path = f"/www/server/php/{version}/etc/php.ini"
+    if not os.path.exists(ini_path):
+        print_result(False, f"php.ini not found for PHP {version} at {ini_path}")
+        return
+
+    try:
+        with open(ini_path, "r") as f:
+            lines = f.readlines()
+
+        changed = False
+        new_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped.startswith(';') and stripped.lower().startswith('disable_functions') and '=' in stripped:
+                key_part, val_part = line.split('=', 1)
+                ending = '\n' if val_part.endswith('\n') else ''
+                if ending:
+                    val_part = val_part[:-1]
+                funcs = [x.strip() for x in val_part.split(',') if x.strip()]
+                new_funcs = [x for x in funcs if x.lower() != 'symlink']
+                if len(new_funcs) != len(funcs):
+                    line = key_part + '=' + ','.join(new_funcs) + ending
+                    changed = True
+            new_lines.append(line)
+
+        if changed:
+            with open(ini_path, "w") as f:
+                f.writelines(new_lines)
+    except Exception as e:
+        print_result(False, f"Failed to update php.ini: {str(e)}")
+        return
+
+    restarted = False
+    for cmd in (f"/etc/init.d/php-fpm-{version} restart", f"systemctl restart php-fpm-{version}"):
+        try:
+            if subprocess.call(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0:
+                restarted = True
+                break
+        except Exception:
+            continue
+
+    msg = f"PHP {version} symlink() function enabled."
+    if not restarted:
+        msg += " Warning: could not automatically restart PHP-FPM -- please restart it manually for the change to take effect."
+    print_result(True, msg, {"restarted": restarted})
 
 if __name__ == "__main__":
     try:
@@ -921,7 +1303,13 @@ if __name__ == "__main__":
         test_ssh(config)
     elif action == "list":
         list_remote_dir(config)
+    elif action == "find_env_files":
+        find_env_files(config)
     elif action == "copy":
         run_copy(config)
+    elif action == "delete_symlinks":
+        delete_broken_symlinks(config)
+    elif action == "fix_php_symlink":
+        fix_php_symlink(config)
     else:
         print_result(False, f"Unknown action: {action}")

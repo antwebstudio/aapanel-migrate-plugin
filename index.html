@@ -601,9 +601,9 @@
                     <label class="ssh-label">Exclude Folders</label>
                     <input type="text" class="ssh-input" id="exclude-folders" placeholder="e.g. .git, node_modules, vendor">
                     <div class="presets-container" id="exclude-chips">
-                        <span class="preset-chip active" data-val=".git" onclick="plugin_view.toggle_exclude(this)">.git</span>
-                        <span class="preset-chip active" data-val="node_modules" onclick="plugin_view.toggle_exclude(this)">node_modules</span>
-                        <span class="preset-chip active" data-val="vendor" onclick="plugin_view.toggle_exclude(this)">vendor</span>
+                        <span class="preset-chip" data-val=".git" onclick="plugin_view.toggle_exclude(this)">.git</span>
+                        <span class="preset-chip" data-val="node_modules" onclick="plugin_view.toggle_exclude(this)">node_modules</span>
+                        <span class="preset-chip" data-val="vendor" onclick="plugin_view.toggle_exclude(this)">vendor</span>
                     </div>
                 </div>
 
@@ -622,6 +622,14 @@
                             <span class="ssh-slider"></span>
                         </label>
                         <span style="font-size: 12.5px; color: var(--text-secondary);">Overwrite existing</span>
+                    </div>
+
+                    <div class="ssh-toggle-container" style="flex: 1;">
+                        <label class="ssh-switch">
+                            <input type="checkbox" id="auto-delete-symlinks">
+                            <span class="ssh-slider"></span>
+                        </label>
+                        <span style="font-size: 12.5px; color: var(--text-secondary);">Auto-delete broken symlinks</span>
                     </div>
                 </div>
 
@@ -717,9 +725,16 @@
 
                     <!-- Read from .env file path option -->
                     <div class="ssh-group" id="db-env-group">
-                        <label class="ssh-label">Remote .env File Path</label>
-                        <input type="text" class="ssh-input" id="db-env-path" placeholder="e.g. /www/wwwroot/my_site/.env">
-                        <p style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">Provide the absolute path to your site's `.env` file on the remote server.</p>
+                        <label class="ssh-label">Remote Source Path</label>
+                        <input type="text" class="ssh-input" id="db-remote-dir" placeholder="e.g. /www/wwwroot/my_site">
+                        <div class="presets-container">
+                            <span class="preset-chip" onclick="plugin_view.fill_db_remote('/www/wwwroot/')">/www/wwwroot/</span>
+                            <span class="preset-chip" onclick="plugin_view.fill_db_remote('/root/')">/root/</span>
+                            <span class="preset-chip" onclick="plugin_view.fill_db_remote('/home/')">/home/</span>
+                        </div>
+                        <p style="font-size: 11px; color: var(--text-secondary); margin: 10px 0 4px;">Remote .env File</p>
+                        <div id="db-env-scan-status" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">Enter the remote source path above to search for a .env file.</div>
+                        <select class="ssh-select" id="db-env-select" style="display: none;"></select>
                     </div>
 
                     <!-- Manual credentials option -->
@@ -854,6 +869,26 @@
                     <div class="terminal-line system">Initialising secure SSH shell...</div>
                 </div>
 
+                <div id="post-migrate-box" style="display: none; margin-bottom: 12px;">
+                    <div id="chown-status" style="font-size: 11.5px; margin-bottom: 10px;"></div>
+                    <div id="laravel-box" style="display: none; margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.4); font-size: 12px; color: var(--text-primary);">
+                        <strong>Laravel application detected</strong>
+                        <div id="laravel-body" style="margin-top: 6px; opacity: 0.9;"></div>
+                    </div>
+                    <div id="symlink-reminder" style="display: none; margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4); font-size: 12px; color: var(--text-primary);">
+                        <strong>&#9888; PHP symlink() function is disabled</strong>
+                        <div id="symlink-reminder-body" style="margin-top: 6px; opacity: 0.9;"></div>
+                    </div>
+                    <div id="symlink-autodelete-status" style="font-size: 11.5px; margin-bottom: 10px;"></div>
+                    <div id="broken-links-box" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label class="ssh-label" style="margin: 0;">Broken Symlinks Found In Migrated Folder</label>
+                            <button type="button" class="ssh-btn ssh-btn-secondary" id="delete-symlinks-btn" style="font-size: 11px; padding: 4px 10px;" onclick="plugin_view.delete_selected_symlinks()">Delete Selected</button>
+                        </div>
+                        <div id="broken-links-list" style="max-height: 150px; overflow-y: auto; font-size: 11.5px; font-family: var(--font-mono); color: var(--text-secondary);"></div>
+                    </div>
+                </div>
+
                 <div style="display: flex; gap: 12px; justify-content: flex-end; flex-shrink: 0;">
                     <button class="ssh-btn ssh-btn-danger" id="cancel-task-btn" onclick="plugin_view.cancel_current_task()">
                         <i class="layui-icon layui-icon-close" style="margin-right: 6px;"></i> Abort Sync
@@ -926,6 +961,7 @@
     var plugin_view = {
         active_task_id: null,
         status_polling_timer: null,
+        active_local_dir: null,
 
         // Tab views navigation switcher
         switch_tab: function(tab_name, element) {
@@ -981,16 +1017,91 @@
             if (current === '/' || !current.startsWith(path)) {
                 $('#remote-dir').val(path);
             }
-            this.update_db_env_path();
         },
 
-        update_db_env_path: function() {
-            var remote_dir = $('#remote-dir').val().trim();
-            if (remote_dir) {
-                var separator = (remote_dir.endsWith('/') || remote_dir.endsWith('\\')) ? '' : '/';
-                var env_path = remote_dir + separator + '.env';
-                $('#db-env-path').val(env_path);
+        fill_db_remote: function(path) {
+            var current = $('#db-remote-dir').val() || '/';
+            if (current === '/' || !current.startsWith(path)) {
+                $('#db-remote-dir').val(path);
             }
+            this.scan_db_env_files();
+        },
+
+        // Build the SSH args currently configured on the Database Migration tab
+        gather_db_ssh_args: function() {
+            var custom_active = $('#db-custom-ssh-toggle').is(':checked');
+            if (custom_active) {
+                var args = {
+                    host: $('#db-ssh-host').val().trim(),
+                    port: $('#db-ssh-port').val().trim(),
+                    username: $('#db-ssh-user').val().trim(),
+                    auth_type: $('#db-ssh-auth-type').val(),
+                    password: safe_b64encode($('#db-ssh-password').val().trim()),
+                    key: safe_b64encode($('#db-ssh-key').val().trim()),
+                    _b64: 1
+                };
+                if (!args.host) {
+                    return { error: 'Host IP is required for custom connection.' };
+                }
+                return { args: args };
+            }
+            var node_id = $('#db-ssh-node-select').val();
+            if (!node_id) {
+                return { error: 'Please select an SSH node target or configure custom parameters.' };
+            }
+            return { args: { node_id: node_id } };
+        },
+
+        // Search the remote source path (Database Migration tab) for .env files
+        scan_db_env_files: function() {
+            var status_el = $('#db-env-scan-status');
+            var select_el = $('#db-env-select');
+            select_el.hide().html('');
+
+            var remote_path = $('#db-remote-dir').val().trim();
+            if (!remote_path) {
+                status_el.text('Enter the remote source path above to search for a .env file.').css('color', 'var(--text-secondary)');
+                return;
+            }
+
+            var res = this.gather_db_ssh_args();
+            if (res.error) {
+                status_el.text(res.error).css('color', 'var(--accent-danger)');
+                return;
+            }
+
+            var args = res.args;
+            args.path = remote_path;
+            status_el.text('Scanning remote path for .env files...').css('color', 'var(--text-secondary)');
+
+            request_plugin(g_plugin_name, 'find_env_files', args, function(rdata) {
+                if (typeof rdata === 'string') {
+                    try { rdata = JSON.parse(rdata); } catch (e) { /* leave as string */ }
+                }
+                // Bail out if the user changed the path again while this request was in flight.
+                if ($('#db-remote-dir').val().trim() !== remote_path) return;
+
+                if (!rdata || !rdata.status) {
+                    status_el.text((rdata && (rdata.message || rdata.msg)) || 'Failed to scan for .env files.').css('color', 'var(--accent-danger)');
+                    return;
+                }
+                var list = rdata.data || [];
+                if (!list.length) {
+                    status_el.text('No .env file found under the remote source path.').css('color', 'var(--accent-danger)');
+                    return;
+                }
+                if (list.length === 1) {
+                    status_el.text('Detected .env file: ' + list[0]).css('color', 'var(--accent-success)');
+                    select_el.html('<option value="' + list[0] + '">' + list[0] + '</option>');
+                } else {
+                    status_el.text('Multiple .env files found -- select one:').css('color', 'var(--text-secondary)');
+                    var html = '';
+                    for (var i = 0; i < list.length; i++) {
+                        html += '<option value="' + list[i] + '">' + list[i] + '</option>';
+                    }
+                    select_el.html(html).show();
+                }
+            });
         },
 
         fill_local: function(path) {
@@ -1006,6 +1117,7 @@
             if (mode === 'env') {
                 $('#db-env-group').show();
                 $('#db-manual-group').hide();
+                this.scan_db_env_files();
             } else {
                 $('#db-env-group').hide();
                 $('#db-manual-group').show();
@@ -1021,6 +1133,7 @@
                 $('#db-ssh-node-select').prop('disabled', false);
                 $('#db-custom-auth-box').slideUp(250);
             }
+            this.scan_db_env_files();
         },
 
         // Trigger input fields on DB auth type changes
@@ -1042,6 +1155,7 @@
                 $('#db-custom-ssh-toggle').prop('checked', false);
                 $('#db-custom-auth-box').hide();
             }
+            this.scan_db_env_files();
         },
 
         // Test DB SSH Connection
@@ -1137,15 +1251,10 @@
 
             args.db_source_mode = $('#db-source-mode').val();
             if (args.db_source_mode === 'env') {
-                var env_path = $('#db-env-path').val().trim();
+                var env_path = $('#db-env-select').val();
                 if (!env_path) {
-                    layer.msg('Remote .env file path is required!', { icon: 2 });
+                    layer.msg('No .env file detected under the remote source path yet. Wait for the scan to finish, or choose another credentials source.', { icon: 2 });
                     return;
-                }
-                if (!env_path.endsWith('.env')) {
-                    var separator = (env_path.endsWith('/') || env_path.endsWith('\\')) ? '' : '/';
-                    env_path = env_path + separator + '.env';
-                    $('#db-env-path').val(env_path);
                 }
                 args.db_env_path = env_path;
             } else {
@@ -1187,7 +1296,8 @@
 
                     var task_info = rdata.data;
                     self.active_task_id = task_info.task_id;
-                    
+                    self.active_local_dir = null;
+
                     $('#transfer-panel').css('display', 'flex').hide().fadeIn(300);
 
                     $('#task-progress-bar').css('width', '0%');
@@ -1197,9 +1307,10 @@
                     $('#metric-status').text('Initializing...').css('color', 'var(--text-secondary)');
                     $('#task-status-badge').attr('class', 'status-badge running pulse-status').html('<i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING');
                     $('#terminal-console').html('<div class="terminal-line system">Secure DB migrator daemon initiated. Spawn ID: ' + task_info.pid + '</div>');
-                    
+
                     $('#cancel-task-btn').show();
                     $('#close-panel-btn').hide();
+                    self.reset_post_migrate_box();
 
                     self.start_status_polling();
                 });
@@ -1382,6 +1493,7 @@
                 exclude_folders: $('#exclude-folders').val().trim(),
                 sync_mode: $('#sync-mode').is(':checked') ? 1 : 0,
                 overwrite: $('#overwrite').is(':checked') ? 1 : 0,
+                auto_delete_symlinks: $('#auto-delete-symlinks').is(':checked') ? 1 : 0,
                 db_migrate: 0
             };
 
@@ -1441,7 +1553,8 @@
 
                     var task_info = rdata.data;
                     self.active_task_id = task_info.task_id;
-                    
+                    self.active_local_dir = args.local_dir;
+
                     $('#transfer-panel').css('display', 'flex').hide().fadeIn(300);
 
                     $('#task-progress-bar').css('width', '0%');
@@ -1451,9 +1564,10 @@
                     $('#metric-status').text('Initializing...').css('color', 'var(--text-secondary)');
                     $('#task-status-badge').attr('class', 'status-badge running pulse-status').html('<i class="layui-icon layui-icon-loading-1 layui-anim layui-anim-rotate layui-anim-loop"></i> RUNNING');
                     $('#terminal-console').html('<div class="terminal-line system">Secure background daemon initiated. Spawn ID: ' + task_info.pid + '</div>');
-                    
+
                     $('#cancel-task-btn').show();
                     $('#close-panel-btn').hide();
+                    self.reset_post_migrate_box();
 
                     self.start_status_polling();
                 });
@@ -1516,6 +1630,7 @@
                         $('#task-status-badge').attr('class', 'status-badge success').html('<i class="layui-icon layui-icon-ok"></i> SUCCESS');
                         $('#cancel-task-btn').hide();
                         $('#close-panel-btn').show();
+                        self.render_post_migrate(rdata);
                         layer.msg('Folder copy completed successfully!', { icon: 1 });
                     } else if (rdata.task_status === 'error') {
                         clearInterval(self.status_polling_timer);
@@ -1535,6 +1650,173 @@
                     }
                 });
             }, 1500);
+        },
+
+        // Reset the post-migration checklist (ownership/Laravel/symlink reminders) shown after a successful copy
+        reset_post_migrate_box: function() {
+            $('#post-migrate-box').hide();
+            $('#chown-status').text('');
+            $('#laravel-box').hide();
+            $('#laravel-body').html('');
+            $('#symlink-reminder').hide();
+            $('#symlink-reminder-body').html('');
+            $('#symlink-autodelete-status').text('');
+            $('#broken-links-box').hide();
+            $('#broken-links-list').html('');
+        },
+
+        // Render ownership status, Laravel artisan results, the PHP symlink() reminder, and the broken-symlinks checklist after a successful copy
+        render_post_migrate: function(rdata) {
+            $('#post-migrate-box').show();
+
+            var chown_el = $('#chown-status');
+            if (rdata.chown_ok === false) {
+                chown_el.text('Warning: failed to set ownership to www:www -- ' + (rdata.chown_error || 'unknown error')).css('color', 'var(--accent-danger)');
+            } else if (rdata.chown_ok === true) {
+                chown_el.text('Ownership of all migrated folders and files set to www:www.').css('color', 'var(--accent-success)');
+            } else {
+                chown_el.text('');
+            }
+
+            var laravel = rdata.laravel;
+            if (laravel && laravel.detected) {
+                var lhtml = 'Found <code>artisan</code> at <code>' + $('<div>').text(laravel.artisan_dir).html() + '</code>.';
+                if (laravel.error) {
+                    lhtml += '<div style="margin-top:6px;color:var(--accent-danger);">' + $('<div>').text(laravel.error).html() + ' Maintenance commands were skipped.</div>';
+                } else if (laravel.commands && laravel.commands.length) {
+                    lhtml += '<div style="margin-top:6px;">Ran maintenance commands using PHP ' + $('<div>').text(laravel.php_version).html() + ':</div>';
+                    lhtml += '<ul style="margin:6px 0 0;padding-left:18px;">';
+                    for (var li = 0; li < laravel.commands.length; li++) {
+                        var c = laravel.commands[li];
+                        var color = c.ok ? 'var(--accent-success)' : 'var(--accent-danger)';
+                        lhtml += '<li style="margin-bottom:4px;"><code>php artisan ' + $('<div>').text(c.command).html() + '</code> -- ' +
+                            '<span style="color:' + color + ';font-weight:600;">' + (c.ok ? 'OK' : 'FAILED') + '</span></li>';
+                    }
+                    lhtml += '</ul>';
+                }
+                $('#laravel-body').html(lhtml);
+                $('#laravel-box').show();
+            } else {
+                $('#laravel-box').hide();
+            }
+
+            var issues = rdata.php_symlink_issues || [];
+            if (issues.length) {
+                var html = 'This site may rely on symlinks, but PHP\'s <code>symlink()</code> function is currently disabled on this server. ' +
+                    'Enable it so symlinks created by the migrated application work correctly:';
+                html += '<ul style="margin:8px 0 0;padding-left:18px;">';
+                for (var i = 0; i < issues.length; i++) {
+                    var version = issues[i].version;
+                    html += '<li style="margin-bottom:6px;">PHP ' + version + ' &mdash; ' +
+                        '<button type="button" class="ssh-btn ssh-btn-secondary fix-symlink-btn" data-version="' + version + '" ' +
+                        'style="font-size:11px;padding:3px 8px;" onclick="plugin_view.fix_php_symlink(\'' + version + '\', this)">Enable symlink()</button> ' +
+                        '<span class="fix-symlink-status" data-version="' + version + '" style="font-size:11px;"></span></li>';
+                }
+                html += '</ul>';
+                $('#symlink-reminder-body').html(html);
+                $('#symlink-reminder').show();
+            } else {
+                $('#symlink-reminder').hide();
+            }
+
+            var autodelete_el = $('#symlink-autodelete-status');
+            if (rdata.auto_delete_symlinks) {
+                var deletedList = rdata.symlinks_deleted || [];
+                var deleteErrors = rdata.symlink_delete_errors || [];
+                var summary = deletedList.length ? ('Auto-deleted ' + deletedList.length + ' broken symlink(s).') : 'No broken symlinks found to auto-delete.';
+                if (deleteErrors.length) {
+                    summary += ' ' + deleteErrors.length + ' could not be deleted -- see below.';
+                }
+                autodelete_el.text(summary).css('color', deleteErrors.length ? 'var(--accent-danger)' : 'var(--accent-success)');
+            } else {
+                autodelete_el.text('');
+            }
+
+            var broken = rdata.broken_symlinks || [];
+            var list_el = $('#broken-links-list');
+            if (broken.length) {
+                var list_html = '';
+                for (var b = 0; b < broken.length; b++) {
+                    var rel = broken[b];
+                    var escaped = $('<div>').text(rel).html();
+                    list_html += '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;">' +
+                        '<input type="checkbox" class="symlink-check" data-path="' + escaped + '" checked> ' +
+                        '<span style="word-break:break-all;">' + escaped + '</span></label>';
+                }
+                list_el.html(list_html);
+                $('#broken-links-box').show();
+            } else {
+                list_el.html('');
+                $('#broken-links-box').hide();
+            }
+        },
+
+        // Action: Enable PHP's symlink() function for a given PHP version and reload PHP-FPM
+        fix_php_symlink: function(version, btn_el) {
+            var status_el = $('.fix-symlink-status[data-version="' + version + '"]');
+            $(btn_el).prop('disabled', true);
+            status_el.text('Applying...').css('color', 'var(--text-secondary)');
+
+            request_plugin(g_plugin_name, 'fix_php_symlink', { version: version }, function(rdata) {
+                if (typeof rdata === 'string') {
+                    try { rdata = JSON.parse(rdata); } catch (e) { /* leave as string */ }
+                }
+                var msg = (rdata && (rdata.message || rdata.msg)) || 'Done.';
+                status_el.text(msg);
+                if (rdata && rdata.status) {
+                    status_el.css('color', 'var(--accent-success)');
+                    $(btn_el).hide();
+                } else {
+                    status_el.css('color', 'var(--accent-danger)');
+                    $(btn_el).prop('disabled', false);
+                }
+            });
+        },
+
+        // Action: Delete the checked broken symlinks from the migrated folder
+        delete_selected_symlinks: function() {
+            var self = this;
+            var paths = [];
+            $('#broken-links-list .symlink-check:checked').each(function() {
+                paths.push($(this).data('path').toString());
+            });
+
+            if (!paths.length) {
+                layer.msg('No broken symlinks selected.', { icon: 2 });
+                return;
+            }
+            if (!this.active_local_dir) {
+                layer.msg('Migrated folder path is unknown for this task.', { icon: 2 });
+                return;
+            }
+
+            layer.confirm('Delete ' + paths.length + ' broken symlink(s)? This cannot be undone.', { title: 'Delete Broken Symlinks', icon: 3 }, function(index) {
+                layer.close(index);
+                request_plugin(g_plugin_name, 'delete_symlinks', { local_dir: self.active_local_dir, paths: JSON.stringify(paths) }, function(rdata) {
+                    if (typeof rdata === 'string') {
+                        try { rdata = JSON.parse(rdata); } catch (e) { /* leave as string */ }
+                    }
+                    if (!rdata || !rdata.status) {
+                        layer.msg((rdata && (rdata.message || rdata.msg)) || 'Failed to delete symlinks.', { icon: 2 });
+                        return;
+                    }
+
+                    var deleted = (rdata.data && rdata.data.deleted) || [];
+                    for (var i = 0; i < deleted.length; i++) {
+                        $('#broken-links-list .symlink-check[data-path="' + deleted[i] + '"]').closest('label').remove();
+                    }
+                    if (!$('#broken-links-list .symlink-check').length) {
+                        $('#broken-links-box').hide();
+                    }
+
+                    var errors = (rdata.data && rdata.data.errors) || [];
+                    if (errors.length) {
+                        layer.msg('Some symlinks could not be deleted: ' + errors.join('; '), { icon: 2 });
+                    } else {
+                        layer.msg('Deleted ' + deleted.length + ' broken symlink(s).', { icon: 1 });
+                    }
+                });
+            });
         },
 
         // Action: Stop/Kill background transfers
@@ -1710,22 +1992,21 @@
         }
     };
 
-    // Auto initialize dropdown nodes, websites, and exclusions
+    // Auto initialize dropdown nodes and websites
     plugin_view.load_nodes();
     plugin_view.load_websites();
-    $('#exclude-folders').val('.git, node_modules, vendor');
 
-    // Auto update DB env path when remote directory changes
-    $('#remote-dir').on('input', function() {
-        plugin_view.update_db_env_path();
-    });
-
-    // Auto-append .env if remote .env path is entered without it on blur
-    $('#db-env-path').on('blur', function() {
-        var val = $(this).val().trim();
-        if (val && !val.endsWith('.env')) {
-            var separator = (val.endsWith('/') || val.endsWith('\\')) ? '' : '/';
-            $(this).val(val + separator + '.env');
-        }
-    });
+    // Debounced re-scan for .env files as the Database Migration tab's remote
+    // path or custom SSH host is typed (node/toggle changes re-scan immediately
+    // via on_db_node_change/toggle_db_custom_form instead, since those are
+    // discrete selections rather than continuous typing)
+    var db_env_scan_timer = null;
+    function scheduleDbEnvScan() {
+        clearTimeout(db_env_scan_timer);
+        db_env_scan_timer = setTimeout(function() {
+            if ($('#db-source-mode').val() === 'env') plugin_view.scan_db_env_files();
+        }, 700);
+    }
+    $('#db-remote-dir').on('input', scheduleDbEnvScan);
+    $('#db-ssh-host').on('input', scheduleDbEnvScan);
 </script>
