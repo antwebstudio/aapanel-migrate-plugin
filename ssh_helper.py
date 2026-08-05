@@ -701,11 +701,23 @@ def get_php_symlink_issues(local_dir, php_version=None):
 def find_artisan_dir(base_dir):
     # Laravel's "artisan" CLI entrypoint lives at the application root,
     # alongside .env -- check there first, then a shallow scan in case the
-    # app was deployed inside a nested subfolder (e.g. a repo-name folder).
+    # app was deployed inside a nested subfolder (e.g. a repo-name folder,
+    # or a release-based layout such as Deployer/Envoyer's
+    # "current -> releases/<timestamp>" symlink convention). followlinks
+    # must be True here, or "current" (a symlink) is never descended into
+    # and the artisan file living inside it is never found -- the same
+    # symlink-heavy layouts that trigger this are exactly the ones that
+    # also leave a pile of broken symlinks behind after a raw rsync.
     direct = os.path.join(base_dir, "artisan")
     if os.path.isfile(direct):
         return base_dir
-    for root, dirs, files in os.walk(base_dir):
+
+    # A symlink cycle (e.g. a release symlinking back into an ancestor)
+    # can't loop forever here: depth is measured off the traversal path
+    # itself, which strictly grows by one per subdirectory regardless of
+    # what a symlink's target real path is, so the depth>=2 prune below
+    # always halts recursion -- no separate cycle guard needed.
+    for root, dirs, files in os.walk(base_dir, followlinks=True):
         depth = root[len(base_dir):].count(os.sep)
         if depth >= 2:
             dirs[:] = []
