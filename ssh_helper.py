@@ -734,7 +734,7 @@ def run_artisan_commands(artisan_dir, php_bin, log_file):
     # Every command below always runs, even if an earlier one failed or
     # timed out -- a broken config:cache shouldn't prevent storage:link,
     # up, or cache:clear from still being attempted.
-    commands = ["config:cache", "storage:link", "up", "cache:clear"]
+    commands = ["config:cache", "fusion:sync", "storage:link", "up", "cache:clear"]
     results = []
     for cmd in commands:
         try:

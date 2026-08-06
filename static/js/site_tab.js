@@ -91,10 +91,21 @@
             body: body,
             credentials: 'same-origin'
         })
-            .then(function (res) { return res.json(); })
-            .then(function (data) {
+            // aaPanel doesn't answer an expired-session request with a JSON
+            // error -- it silently redirects to the HTML login page instead
+            // (still HTTP 200), so res.json() would just throw. Read as text
+            // and parse by hand so that case can be told apart from a real
+            // network failure below.
+            .then(function (res) { return res.text(); })
+            .then(function (text) {
+                var data;
+                try { data = JSON.parse(text); } catch (e) { data = null; }
+                if (data === null) {
+                    callback({ status: false, msg: 'Your aaPanel session has expired. Please log in again.', session_expired: true });
+                    return;
+                }
                 if (typeof data === 'string') {
-                    try { data = JSON.parse(data); } catch (e) { /* leave as string */ }
+                    try { data = JSON.parse(data); } catch (e2) { /* leave as string */ }
                 }
                 callback(data);
             })
@@ -321,6 +332,11 @@
             '<span style="font-weight:700;font-size:13px;">Migration Telemetry</span>' +
             '<span class="mig-status-badge" style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:100px;background:rgba(245,158,11,0.15);color:#f59e0b;">RUNNING</span>' +
             '</div>' +
+            '<div class="mig-reconnect-banner" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:6px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);font-size:12px;">' +
+            '<span class="mig-reconnect-msg"></span> ' +
+            '<button type="button" class="mig-btn mig-btn-secondary mig-reconnect-btn" ' +
+            'style="font-size:11px;padding:3px 10px;border-radius:4px;cursor:pointer;background:transparent;margin-left:6px;">Check Now</button>' +
+            '</div>' +
             '<div style="height:8px;border-radius:8px;background:rgba(128,128,128,0.2);overflow:hidden;margin-bottom:12px;">' +
             '<div class="mig-progress-bar" style="height:100%;width:0%;background:#1a94ff;border-radius:8px;transition:width .4s ease;"></div>' +
             '</div>' +
@@ -496,6 +512,9 @@
         var metricSpeed = ourPane.querySelector('.mig-metric-speed');
         var metricEta = ourPane.querySelector('.mig-metric-eta');
         var statusBadge = ourPane.querySelector('.mig-status-badge');
+        var reconnectBanner = ourPane.querySelector('.mig-reconnect-banner');
+        var reconnectMsg = ourPane.querySelector('.mig-reconnect-msg');
+        var reconnectBtn = ourPane.querySelector('.mig-reconnect-btn');
         var consoleEl = ourPane.querySelector('.mig-console');
         var cancelBtn = ourPane.querySelector('.mig-cancel-btn');
         var closePanelBtn = ourPane.querySelector('.mig-close-panel-btn');
@@ -1018,12 +1037,44 @@
             });
         });
 
+        var pollFailures = 0;
+
+        function showReconnectBanner(msg) {
+            reconnectMsg.textContent = msg;
+            reconnectBanner.style.display = '';
+        }
+
+        function hideReconnectBanner() {
+            reconnectBanner.style.display = 'none';
+        }
+
         function pollStatus() {
             stopPolling();
+            pollFailures = 0;
+            hideReconnectBanner();
             pollTimer = setInterval(function () {
                 if (!activeTaskId) { stopPolling(); return; }
                 requestPlugin('get_task_status', { task_id: activeTaskId }, function (data) {
-                    if (!data || !data.status) return;
+                    if (!data || !data.status) {
+                        // The migration itself runs detached on the server
+                        // (nohup), so it keeps going even if polling can't
+                        // reach it -- but silently doing nothing here makes
+                        // the panel look frozen with no explanation, which is
+                        // exactly what happens once the aaPanel session times
+                        // out from inactivity. Surface it instead of hiding it.
+                        if (data && data.session_expired) {
+                            stopPolling();
+                            showReconnectBanner(data.msg || 'Your aaPanel session has expired. Log in again in another tab, then click Check Now.');
+                            return;
+                        }
+                        pollFailures++;
+                        if (pollFailures >= 3) {
+                            showReconnectBanner('Lost connection to the server -- retrying automatically. The migration itself is unaffected.');
+                        }
+                        return;
+                    }
+                    pollFailures = 0;
+                    hideReconnectBanner();
                     var pct = data.progress + '%';
                     progressBar.style.width = pct;
                     metricProgress.textContent = pct;
@@ -1047,6 +1098,23 @@
                 });
             }, 1500);
         }
+
+        // Manual retry after a session expiry: pollStatus() was stopped, so
+        // this fires a single one-off status check rather than reviving the
+        // interval blind -- if the user has logged back in (in another tab)
+        // it resumes normal polling, otherwise the banner just stays put.
+        reconnectBtn.addEventListener('click', function () {
+            if (!activeTaskId) return;
+            reconnectBtn.disabled = true;
+            requestPlugin('get_task_status', { task_id: activeTaskId }, function (data) {
+                reconnectBtn.disabled = false;
+                if (data && data.status) {
+                    pollStatus();
+                } else {
+                    showReconnectBanner((data && data.msg) || 'Still unable to reach the server. Log in to aaPanel again, then retry.');
+                }
+            });
+        });
 
         startBtn.addEventListener('click', function () {
             formStatus.textContent = '';
